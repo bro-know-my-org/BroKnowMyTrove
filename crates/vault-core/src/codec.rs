@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::Read,
+    io::{self, Read, Write},
     path::Path,
 };
 
@@ -30,7 +30,9 @@ pub(crate) fn open_regular(path: &Path) -> Result<File> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT
+        options
+            .custom_flags(0x00200000) // FILE_FLAG_OPEN_REPARSE_POINT
+            .share_mode(0x00000001); // FILE_SHARE_READ: exclude writes/deletes during reads.
     }
     let file = options.open(path)?;
     if !file.metadata()?.is_file() {
@@ -53,11 +55,47 @@ pub(crate) fn read_limited(path: &Path, max: usize) -> Result<Zeroizing<Vec<u8>>
 }
 
 pub(crate) fn encode<T: Serialize>(value: &T, max: usize) -> Result<Zeroizing<Vec<u8>>> {
-    let bytes = Zeroizing::new(serde_json::to_vec(value).map_err(|_| Error::InvalidFormat)?);
-    if bytes.len() > max {
-        return Err(Error::ResourceLimit);
+    // Count without retaining plaintext, then serialize into fixed storage. Vec growth
+    // would otherwise free earlier plaintext allocations without zeroizing them.
+    let mut counter = SizeCounter {
+        length: 0,
+        max,
+        exceeded: false,
+    };
+    serde_json::to_writer(&mut counter, value).map_err(|_| {
+        if counter.exceeded {
+            Error::ResourceLimit
+        } else {
+            Error::InvalidFormat
+        }
+    })?;
+    let mut bytes = Zeroizing::new(vec![0; counter.length]);
+    let mut writer = io::Cursor::new(bytes.as_mut_slice());
+    serde_json::to_writer(&mut writer, value).map_err(|_| Error::InvalidFormat)?;
+    if writer.position() != counter.length as u64 {
+        return Err(Error::InvalidFormat);
     }
     Ok(bytes)
+}
+
+struct SizeCounter {
+    length: usize,
+    max: usize,
+    exceeded: bool,
+}
+
+impl Write for SizeCounter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() > self.max - self.length {
+            self.exceeded = true;
+            return Err(io::Error::other("serialized size limit exceeded"));
+        }
+        self.length += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub(crate) fn decode<T: DeserializeOwned>(bytes: &[u8], max: usize) -> Result<T> {
@@ -95,4 +133,21 @@ pub(crate) fn unseal_json<T: DeserializeOwned>(
         return Err(Error::ResourceLimit);
     }
     decode(&unseal(key, aad, bytes)?, max - 40)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialization_limits_count_escaped_and_unicode_bytes() {
+        let value = vec!["中文\n\"".repeat(500)];
+        let expected = serde_json::to_vec(&value).unwrap();
+        assert_eq!(&*encode(&value, expected.len()).unwrap(), &expected);
+        assert!(matches!(
+            encode(&value, expected.len() - 1),
+            Err(Error::ResourceLimit)
+        ));
+        assert!(matches!(encode(&value, 0), Err(Error::ResourceLimit)));
+    }
 }

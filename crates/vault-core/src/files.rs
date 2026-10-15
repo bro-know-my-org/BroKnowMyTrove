@@ -180,8 +180,8 @@ impl Vault {
     pub fn verify_content(&mut self, operation: &Operation) -> Result<ContentReport> {
         let mut report = ContentReport::default();
         let mut seen = std::collections::HashSet::new();
-        for entry in self.entries() {
-            if let EntryKind::File { object, length, .. } = entry.kind {
+        for index in 0..self.snapshot.entries.len() {
+            if let EntryKind::File { object, length, .. } = self.snapshot.entries[index].kind {
                 if !seen.insert(object) {
                     continue;
                 }
@@ -208,19 +208,13 @@ impl Vault {
                             .ok_or(Error::ResourceLimit)?;
                     }
                     Err(Error::Cancelled) => return Err(Error::Cancelled),
-                    Err(_) => report.failed_objects.push(object),
+                    Err(_) => {
+                        self.writable = false;
+                        self.issues.push(crate::Issue::DamagedObject(object));
+                        report.failed_objects.push(object);
+                    }
                 }
             }
-        }
-        if !report.failed_objects.is_empty() {
-            self.writable = false;
-            self.issues.extend(
-                report
-                    .failed_objects
-                    .iter()
-                    .copied()
-                    .map(crate::Issue::DamagedObject),
-            );
         }
         Ok(report)
     }

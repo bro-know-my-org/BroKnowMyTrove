@@ -121,6 +121,8 @@ impl<W: std::io::Write> std::io::Write for OperationWriter<'_, W> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Point {
+    KeysDerived,
+    KeysPublished,
     ObjectWritten,
     ObjectSynced,
     ObjectPublished,

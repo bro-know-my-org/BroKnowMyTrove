@@ -80,7 +80,10 @@ impl Vault {
     pub fn search<'a>(&'a self, query: &str, trash: bool) -> impl Iterator<Item = &'a Entry> {
         let query = model::name_key(query);
         self.entries().filter(move |entry| {
-            entry.is_trashed() == trash && model::name_key(&entry.name).contains(&query)
+            entry.is_trashed() == trash
+                && model::name_key(&entry.name)
+                    .as_str()
+                    .contains(query.as_str())
         })
     }
 

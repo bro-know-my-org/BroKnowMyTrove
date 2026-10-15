@@ -158,8 +158,26 @@ impl Snapshot {
     }
 }
 
-pub(crate) fn name_key(name: &str) -> String {
-    name.nfc().case_fold().nfc().collect()
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub(crate) struct NameKey(String);
+
+impl NameKey {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for NameKey {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+pub(crate) fn name_key(name: &str) -> NameKey {
+    let length = name.nfc().case_fold().nfc().map(char::len_utf8).sum();
+    let mut key = NameKey(String::with_capacity(length));
+    key.0.extend(name.nfc().case_fold().nfc());
+    key
 }
 
 pub(crate) fn validate_name(name: &str) -> Result<()> {

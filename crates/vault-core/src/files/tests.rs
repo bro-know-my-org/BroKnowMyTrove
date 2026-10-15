@@ -96,6 +96,47 @@ fn failed_authentication_never_publishes_plaintext_or_leaves_temporary_files() {
 }
 
 #[test]
+fn cancellation_after_finding_damage_keeps_the_session_readonly() {
+    let (directory, mut vault, _) = fixture();
+    let source = directory.path().join("source");
+    fs::write(&source, b"damaged").unwrap();
+    let id = vault
+        .import_file(None, "损坏文件", &source, &Operation::default())
+        .unwrap();
+    let EntryKind::File { object, .. } = vault.entry(id).unwrap().kind else {
+        panic!()
+    };
+    fs::write(&source, vec![42; model::CHUNK + 1]).unwrap();
+    vault
+        .import_file(None, "正常文件", &source, &Operation::default())
+        .unwrap();
+    let path = vault.store.path(Kind::Object, object);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes[0] ^= 1;
+    fs::write(path, bytes).unwrap();
+    let operation = Operation::default();
+    let cancel = operation.clone();
+    let operation = operation.with_progress(move |_| cancel.cancel());
+
+    assert!(matches!(
+        vault.verify_content(&operation),
+        Err(Error::Cancelled)
+    ));
+    assert!(!vault.is_writable());
+    assert!(
+        vault
+            .issues()
+            .iter()
+            .any(|issue| matches!(issue, crate::Issue::DamagedObject(id) if *id == object))
+    );
+    assert!(matches!(
+        vault.collect_garbage(&Operation::default()),
+        Err(Error::ReadOnly)
+    ));
+}
+
+#[cfg(not(windows))]
+#[test]
 fn changed_source_and_cancellation_leave_the_old_tree_intact() {
     let (directory, mut vault, _) = fixture();
     let source = directory.path().join("source");
@@ -106,6 +147,7 @@ fn changed_source_and_cancellation_leave_the_old_tree_intact() {
         if !once.swap(true, std::sync::atomic::Ordering::Relaxed) {
             let mut file = fs::OpenOptions::new().write(true).open(&path).unwrap();
             use std::io::Write;
+            file.set_len(0).unwrap();
             file.write_all(b"changed").unwrap();
             file.sync_all().unwrap();
         }
@@ -122,6 +164,30 @@ fn changed_source_and_cancellation_leave_the_old_tree_intact() {
         Err(Error::Cancelled)
     ));
     assert_eq!(vault.entries().count(), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn import_excludes_writers_until_the_source_handle_is_closed() {
+    let (directory, mut vault, _) = fixture();
+    let source = directory.path().join("source");
+    fs::write(&source, vec![17; model::CHUNK * 2]).unwrap();
+    let writer = fs::OpenOptions::new().write(true).open(&source).unwrap();
+    assert!(
+        vault
+            .import_file(None, "文件", &source, &Operation::default())
+            .is_err()
+    );
+    assert_eq!(vault.entries().count(), 0);
+    drop(writer);
+    let path = source.clone();
+    let operation = Operation::default().with_progress(move |_| {
+        assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
+    });
+    vault
+        .import_file(None, "文件", &source, &operation)
+        .unwrap();
+    assert!(fs::OpenOptions::new().write(true).open(source).is_ok());
 }
 
 #[test]

@@ -137,6 +137,19 @@ fn short_writes_and_source_length_changes_are_not_success() {
 
 #[test]
 fn huge_source_is_bounded_and_cancellable_without_materializing_it() {
+    struct BudgetReader {
+        consumed: usize,
+    }
+    impl Read for BudgetReader {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            if self.consumed + bytes.len() > 3 * CHUNK {
+                return Err(io::Error::other("cancellation read budget exceeded"));
+            }
+            bytes.fill(17);
+            self.consumed += bytes.len();
+            Ok(bytes.len())
+        }
+    }
     let operation = Operation::default();
     let cancel = operation.clone();
     let operation = operation.with_progress(move |progress| {
@@ -145,14 +158,16 @@ fn huge_source_is_bounded_and_cancellable_without_materializing_it() {
         }
     });
     let key = Secret::generate().unwrap();
+    let mut source = BudgetReader { consumed: 0 };
     let result = encrypt(
         &key,
         Id([1; 16]),
         Id([2; 16]),
         100 * 1024 * 1024 * 1024,
-        &mut io::repeat(17),
+        &mut source,
         &mut io::sink(),
         &operation,
     );
     assert!(matches!(result, Err(Error::Cancelled)));
+    assert_eq!(source.consumed, 2 * CHUNK);
 }

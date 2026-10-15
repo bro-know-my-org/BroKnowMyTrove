@@ -35,7 +35,19 @@ impl Vault {
         password: &Password,
         options: CreateOptions,
     ) -> Result<(Self, Option<RecoveryKey>)> {
+        Self::create_with_operation(path, password, options, &Operation::default())
+    }
+
+    pub fn create_with_operation(
+        path: &Path,
+        password: &Password,
+        options: CreateOptions,
+        operation: &Operation,
+    ) -> Result<(Self, Option<RecoveryKey>)> {
+        operation.check()?;
         let (header, master, recovery) = KeyFile::create(password, options)?;
+        operation.checkpoint(crate::operation::Point::KeysDerived)?;
+        operation.check()?;
         let store = Store::create(path)?;
         let mut temporary = tempfile::Builder::new()
             .prefix(".tmp-key-")
@@ -46,6 +58,7 @@ impl Vault {
             .persist_noclobber(store.root.join("keys.json"))
             .map_err(|error| Error::from(error.error))?;
         sync_directory(&store.root)?;
+        operation.checkpoint(crate::operation::Point::KeysPublished)?;
         let mut vault = Self {
             store,
             master,
@@ -56,6 +69,8 @@ impl Vault {
             writable: true,
             issues: Vec::new(),
         };
+        // Cancellation is honored after KDF, before touching disk. Once creation
+        // starts, finish the initial commit so cancellation cannot strand keys alone.
         vault.commit(Snapshot::default(), &Operation::default())?;
         Ok((vault, recovery))
     }
@@ -104,6 +119,9 @@ impl Vault {
             let id = graph.records[&head].snapshot;
             match read_snapshot(&store, &master, header.vault_id, id) {
                 Ok(snapshot) => check_references(&store, &snapshot, &mut graph.report.issues)?,
+                Err(Error::Io(kind)) if kind != std::io::ErrorKind::NotFound => {
+                    return Err(Error::Io(kind));
+                }
                 Err(_) => graph.report.issues.push(Issue::DamagedSnapshot(id)),
             }
         }
@@ -127,6 +145,13 @@ impl Vault {
     }
 
     pub(crate) fn check_writable(&mut self) -> Result<()> {
+        self.check_writable_with_metadata(|path| path.symlink_metadata())
+    }
+
+    fn check_writable_with_metadata(
+        &mut self,
+        metadata: impl FnMut(&Path) -> std::io::Result<std::fs::Metadata>,
+    ) -> Result<()> {
         if !self.writable {
             return Err(Error::ReadOnly);
         }
@@ -137,10 +162,27 @@ impl Vault {
                 return Err(Error::ReadOnly);
             }
             let mut issues = Vec::new();
-            check_references(&self.store, &self.snapshot, &mut issues)?;
-            if !issues.is_empty() {
+            let snapshot = graph.records[&current].snapshot;
+            match read_snapshot(&self.store, &self.master, self.vault_id, snapshot) {
+                Ok(_) => {}
+                Err(Error::Io(kind)) if kind != std::io::ErrorKind::NotFound => {
+                    return Err(Error::Io(kind));
+                }
+                Err(_) => {
+                    self.writable = false;
+                    self.issues.push(Issue::DamagedSnapshot(snapshot));
+                    return Err(Error::ReadOnly);
+                }
+            }
+            let checked =
+                check_references_with_metadata(&self.store, &self.snapshot, &mut issues, metadata);
+            let damaged = !issues.is_empty();
+            if damaged {
                 self.writable = false;
                 self.issues.extend(issues);
+            }
+            checked?;
+            if damaged {
                 return Err(Error::ReadOnly);
             }
         }
@@ -213,12 +255,24 @@ pub(crate) fn read_snapshot(store: &Store, master: &Secret, vault: Id, id: Id) -
 }
 
 fn check_references(store: &Store, snapshot: &Snapshot, issues: &mut Vec<Issue>) -> Result<()> {
+    check_references_with_metadata(store, snapshot, issues, |path| path.symlink_metadata())
+}
+
+fn check_references_with_metadata(
+    store: &Store,
+    snapshot: &Snapshot,
+    issues: &mut Vec<Issue>,
+    mut metadata: impl FnMut(&Path) -> std::io::Result<std::fs::Metadata>,
+) -> Result<()> {
     for entry in &snapshot.entries {
         if let EntryKind::File { object, length, .. } = entry.kind {
-            match store.path(Kind::Object, object).symlink_metadata() {
+            match metadata(&store.path(Kind::Object, object)) {
                 Ok(metadata) if metadata.is_file() && metadata.len() == object_size(length)? => {}
                 Ok(_) => issues.push(Issue::DamagedObject(object)),
-                Err(_) => issues.push(Issue::MissingObject(object)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    issues.push(Issue::MissingObject(object))
+                }
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -267,5 +321,68 @@ mod tests {
         let report = Vault::inspect(&path, Credential::Password(&password)).unwrap();
         assert_eq!(report.head, current);
         assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn cancellation_during_key_derivation_does_not_create_a_vault() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("vault");
+        let password = Password::new("取消创建".into()).unwrap();
+        let operation = Operation::default().cancelling_at(crate::operation::Point::KeysDerived);
+        assert!(matches!(
+            Vault::create_with_operation(&path, &password, options(), &operation),
+            Err(Error::Cancelled)
+        ));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn cancellation_after_keys_are_published_finishes_a_reopenable_vault() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("vault");
+        let password = Password::new("取消创建".into()).unwrap();
+        let operation = Operation::default().cancelling_at(crate::operation::Point::KeysPublished);
+        let (vault, _) =
+            Vault::create_with_operation(&path, &password, options(), &operation).unwrap();
+        assert!(matches!(operation.check_cancelled(), Err(Error::Cancelled)));
+        drop(vault);
+        assert!(Vault::open(&path, Credential::Password(&password), OpenMode::ReadWrite).is_ok());
+    }
+
+    #[test]
+    fn reference_io_failure_preserves_damage_detected_earlier_in_the_check() {
+        let temp = tempfile::tempdir().unwrap();
+        let password = Password::new("损坏检查".into()).unwrap();
+        let (mut vault, _) =
+            Vault::create(&temp.path().join("vault"), &password, options()).unwrap();
+        let source = temp.path().join("source");
+        std::fs::write(&source, b"payload").unwrap();
+        let op = Operation::default();
+        vault.import_file(None, "文件一", &source, &op).unwrap();
+        vault.import_file(None, "文件二", &source, &op).unwrap();
+        let EntryKind::File { object, .. } = vault.snapshot.entries[0].kind else {
+            panic!()
+        };
+        let missing = vault.store.path(Kind::Object, object);
+        std::fs::remove_file(&missing).unwrap();
+        let result = vault.check_writable_with_metadata(|path| {
+            if path == missing {
+                path.symlink_metadata()
+            } else {
+                Err(std::io::ErrorKind::PermissionDenied.into())
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(Error::Io(std::io::ErrorKind::PermissionDenied))
+        ));
+        assert!(!vault.is_writable());
+        assert!(
+            vault
+                .issues()
+                .iter()
+                .any(|issue| matches!(issue, Issue::MissingObject(id) if *id == object))
+        );
+        assert!(matches!(vault.collect_garbage(&op), Err(Error::ReadOnly)));
     }
 }

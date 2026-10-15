@@ -127,3 +127,47 @@ fn readonly_and_cancelled_sessions_cannot_retire_recovery_points() {
     assert!(matches!(vault.empty_trash(&op), Err(Error::Cancelled)));
     assert_eq!(vault.current_commit(), Some(current));
 }
+
+#[test]
+fn damaged_current_snapshot_preserves_historical_recovery_points() {
+    let (temp, mut vault, password) = fixture();
+    let op = Operation::default();
+    let source = temp.path().join("source");
+    fs::write(&source, b"old content").unwrap();
+    let id = vault.import_file(None, "文件", &source, &op).unwrap();
+    let historical = vault.current_commit().unwrap();
+    fs::write(&source, b"new content").unwrap();
+    vault.replace_file(id, &source, &op).unwrap();
+    let graph = ledger::scan(&vault.store, &vault.master, vault.vault_id).unwrap();
+    let snapshot = graph.records[&vault.current_commit().unwrap()].snapshot;
+    let path = vault.store.path(Kind::Snapshot, snapshot);
+    let mut bytes = fs::read(&path).unwrap();
+    *bytes.last_mut().unwrap() ^= 1;
+    fs::write(path, bytes).unwrap();
+    let snapshots = vault.store.inventory(Kind::Snapshot).unwrap().ids;
+    let objects = vault.store.inventory(Kind::Object).unwrap().ids;
+
+    assert!(matches!(vault.collect_garbage(&op), Err(Error::ReadOnly)));
+    assert!(!vault.is_writable());
+    assert!(
+        vault
+            .issues()
+            .iter()
+            .any(|issue| matches!(issue, crate::Issue::DamagedSnapshot(id) if *id == snapshot))
+    );
+    assert_eq!(
+        vault.store.inventory(Kind::Snapshot).unwrap().ids,
+        snapshots
+    );
+    assert_eq!(vault.store.inventory(Kind::Object).unwrap().ids, objects);
+    drop(vault);
+    let vault = Vault::open(
+        &temp.path().join("vault"),
+        Credential::Password(&password),
+        OpenMode::Recovery(historical),
+    )
+    .unwrap();
+    let destination = temp.path().join("recovered");
+    vault.export_file(id, &destination, &op).unwrap();
+    assert_eq!(fs::read(destination).unwrap(), b"old content");
+}
