@@ -1,0 +1,7 @@
+[
+  {"valid":true,"json":"{\"entries\":[]}"},
+  {"valid":false,"json":"{\"entries\":[],\"future\":1}"},
+  {"valid":false,"json":"{\"entries\":[],\"entries\":[]}"},
+  {"valid":false,"json":"{\"entries\":[]} trailing"},
+  {"valid":false,"json":"{\"entries\":null}"}
+]
