@@ -11,6 +11,7 @@ mod model;
 pub mod operation;
 mod store;
 mod stream;
+mod tree;
 mod vault;
 
 pub use error::{Error, Result};

@@ -27,7 +27,7 @@ impl Vault {
     pub fn replace_file(&mut self, id: Id, source: &Path, operation: &Operation) -> Result<()> {
         let entry = self
             .entry(id)
-            .filter(|entry| !entry.trashed)
+            .filter(|entry| !entry.is_trashed())
             .ok_or(Error::InvalidInput)?
             .clone();
         if !matches!(entry.kind, EntryKind::File { .. }) {
@@ -49,9 +49,9 @@ impl Vault {
         operation.check()?;
         validate_name(name)?;
         if let Some(parent) = parent
-            && !self
-                .entry(parent)
-                .is_some_and(|entry| !entry.trashed && matches!(entry.kind, EntryKind::Directory))
+            && !self.entry(parent).is_some_and(|entry| {
+                !entry.is_trashed() && matches!(entry.kind, EntryKind::Directory)
+            })
         {
             return Err(Error::InvalidInput);
         }
@@ -87,7 +87,7 @@ impl Vault {
                 id,
                 parent,
                 name: name.into(),
-                trashed: false,
+                trash_group: None,
                 kind,
             });
         }

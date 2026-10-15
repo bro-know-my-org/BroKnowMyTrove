@@ -61,8 +61,14 @@ pub struct Entry {
     pub id: Id,
     pub parent: Option<Id>,
     pub name: String,
-    pub trashed: bool,
+    pub trash_group: Option<Id>,
     pub kind: EntryKind,
+}
+
+impl Entry {
+    pub fn is_trashed(&self) -> bool {
+        self.trash_group.is_some()
+    }
 }
 
 impl Drop for Entry {
@@ -89,7 +95,7 @@ impl Snapshot {
         let mut siblings = HashSet::new();
         for entry in &self.entries {
             validate_name(&entry.name)?;
-            if !entry.trashed && !siblings.insert((entry.parent, name_key(&entry.name))) {
+            if !entry.is_trashed() && !siblings.insert((entry.parent, name_key(&entry.name))) {
                 return Err(Error::Conflict);
             }
             if let EntryKind::File { length, .. } = entry.kind {
@@ -104,7 +110,9 @@ impl Snapshot {
                     return Err(Error::ResourceLimit);
                 }
                 let node = entries.get(&id).ok_or(Error::InvalidFormat)?;
-                if !matches!(node.kind, EntryKind::Directory) || (node.trashed && !entry.trashed) {
+                if !matches!(node.kind, EntryKind::Directory)
+                    || (node.is_trashed() && !entry.is_trashed())
+                {
                     return Err(Error::InvalidFormat);
                 }
                 parent = node.parent;
@@ -121,6 +129,23 @@ impl Snapshot {
                 EntryKind::Directory => None,
             })
             .collect()
+    }
+
+    pub fn subtree(&self, root: Id) -> HashSet<Id> {
+        let mut children = HashMap::<Id, Vec<Id>>::new();
+        for entry in &self.entries {
+            if let Some(parent) = entry.parent {
+                children.entry(parent).or_default().push(entry.id);
+            }
+        }
+        let mut result = HashSet::new();
+        let mut pending = vec![root];
+        while let Some(id) = pending.pop() {
+            if result.insert(id) {
+                pending.extend(children.get(&id).into_iter().flatten().copied());
+            }
+        }
+        result
     }
 }
 
@@ -145,6 +170,7 @@ pub(crate) fn validate_name(name: &str) -> Result<()> {
         .split('.')
         .next()
         .unwrap_or_default()
+        .trim_end_matches(' ')
         .to_ascii_uppercase();
     if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"].contains(&stem.as_str())
         || ["COM", "LPT"].iter().any(|prefix| {
@@ -177,7 +203,7 @@ mod tests {
             id,
             parent: Some(id),
             name: "目录".into(),
-            trashed: false,
+            trash_group: None,
             kind: EntryKind::Directory,
         };
         assert!(Snapshot { entries: vec![a] }.validate().is_err());
@@ -185,7 +211,7 @@ mod tests {
             id,
             parent: None,
             name: "café".into(),
-            trashed: false,
+            trash_group: None,
             kind: EntryKind::Directory,
         };
         let mut b = a.clone();
