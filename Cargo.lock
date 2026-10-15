@@ -2744,6 +2744,7 @@ version = "0.1.0"
 dependencies = [
  "alkali",
  "hex",
+ "libc",
  "libsodium-sys-stable",
  "serde",
  "serde_json",
