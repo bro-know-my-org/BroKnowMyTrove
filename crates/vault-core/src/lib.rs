@@ -11,6 +11,8 @@ mod keyfile;
 mod model;
 pub mod operation;
 #[allow(dead_code)]
+mod store;
+#[allow(dead_code)]
 mod stream;
 
 pub use error::{Error, Result};

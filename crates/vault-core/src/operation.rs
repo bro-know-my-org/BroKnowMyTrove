@@ -20,6 +20,11 @@ pub struct Operation {
 }
 
 impl Operation {
+    #[cfg(test)]
+    pub(crate) fn failing_at(mut self, point: Point) -> Self {
+        self.fault = Some(point);
+        self
+    }
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
