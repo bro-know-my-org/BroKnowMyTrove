@@ -1,13 +1,9 @@
+use crate::response::{Response, diagnostic};
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
-use std::{
-    fmt,
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use vault_cli::password;
 use vault_core::{
-    CleanupReport, CreateOptions, Credential, Error, Id, OpenMode, Result, Vault,
-    operation::Operation,
+    CreateOptions, Credential, Error, Id, OpenMode, Result, Vault, operation::Operation,
 };
 
 fn text(name: &'static str) -> Arg {
@@ -51,6 +47,7 @@ pub fn command() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .about(vault_core::PRODUCT_NAME)
         .after_help(vault_core::DEVELOPMENT_STATUS)
+        .arg(flag("json", "输出单行 JSON 结果；错误仍写入 stderr").global(true))
         .subcommand(
             Command::new("create")
                 .about("创建实验保险库，密码输入两遍")
@@ -123,7 +120,7 @@ pub fn command() -> Command {
         .subcommand(readable("check", "逐对象完整认证全部内容"))
 }
 
-fn get<'a, T: Clone + Send + Sync + 'static>(args: &'a ArgMatches, name: &str) -> &'a T {
+pub(crate) fn get<'a, T: Clone + Send + Sync + 'static>(args: &'a ArgMatches, name: &str) -> &'a T {
     args.get_one(name).expect("required command argument")
 }
 fn target_parent(args: &ArgMatches) -> Result<Option<Id>> {
@@ -133,7 +130,7 @@ fn target_parent(args: &ArgMatches) -> Result<Option<Id>> {
     }
 }
 
-fn open(args: &ArgMatches, path: &Path, mode: OpenMode) -> Result<Vault> {
+pub(crate) fn open(args: &ArgMatches, path: &Path, mode: OpenMode) -> Result<Vault> {
     // Credentials leave scope immediately after unlock, before long file operations.
     if args.get_flag("recovery-key") {
         let key = password::read_recovery()?;
@@ -144,17 +141,8 @@ fn open(args: &ArgMatches, path: &Path, mode: OpenMode) -> Result<Vault> {
     }
 }
 
-fn output(message: fmt::Arguments<'_>) -> Result<()> {
-    writeln!(io::stdout().lock(), "{message}").map_err(Error::from)
-}
-
-fn diagnostic(message: &str) {
-    let _ = writeln!(io::stderr().lock(), "{message}");
-}
-
-fn committed_output(message: fmt::Arguments<'_>) -> Result<()> {
-    output(message)
-        .inspect_err(|_| diagnostic("保险库操作已执行，但结果输出失败；请检查保险库状态。"))
+pub(crate) fn readonly(name: &str) -> bool {
+    ["list", "search", "export", "check", "space"].contains(&name)
 }
 
 pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
@@ -178,7 +166,7 @@ pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
                 diagnostic("保险库已创建，但恢复密钥显示失败；仍可使用密码打开保险库。");
             })?;
         }
-        return committed_output(format_args!("保险库已创建"));
+        return Response::Created.print(args.get_flag("json"), true);
     }
     if name == "inspect" {
         let report = if args.get_flag("recovery-key") {
@@ -188,15 +176,9 @@ pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
             let key = password::read_password(false)?;
             Vault::inspect(path, Credential::Password(&key))?
         };
-        let printed = output(format_args!("{report:#?}"));
-        return if report.issues.is_empty() {
-            printed
-        } else {
-            Err(Error::ReadOnly)
-        };
+        return Response::Inspection(report).print(args.get_flag("json"), false);
     }
-    let readonly = ["list", "search", "export", "check", "space"].contains(&name);
-    let mode = if readonly {
+    let mode = if readonly(name) {
         args.get_one::<Id>("commit")
             .copied()
             .map_or(OpenMode::ReadOnly, OpenMode::Recovery)
@@ -204,95 +186,77 @@ pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
         OpenMode::ReadWrite
     };
     let mut vault = open(args, path, mode)?;
+    execute(name, args, &mut vault, operation)?
+        .print(args.get_flag("json"), !readonly(name) || name == "export")
+}
+
+pub(crate) fn execute<'a>(
+    name: &str,
+    args: &'a ArgMatches,
+    vault: &'a mut Vault,
+    operation: &Operation,
+) -> Result<Response<'a>> {
     operation.check_cancelled()?;
-    match name {
+    Ok(match name {
         "list" | "search" => {
             let query = if name == "search" {
                 get::<String>(args, "query").as_str()
             } else {
                 ""
             };
-            for entry in vault.search(query, args.get_flag("trash")) {
-                let kind = match entry.kind {
-                    vault_core::EntryKind::Directory => serde_json::json!({"type": "directory"}),
-                    vault_core::EntryKind::File {
-                        length,
-                        modified_ns,
-                        ..
-                    } => {
-                        serde_json::json!({"type": "file", "length": length, "modified_ns": modified_ns})
-                    }
-                };
-                output(format_args!(
-                    "{}",
-                    serde_json::json!({
-                        "id": entry.id.to_string(), "parent": entry.parent.map(|id| id.to_string()),
-                        "name": entry.name, "trashed": entry.is_trashed(), "kind": kind,
-                    })
-                ))?;
-            }
+            Response::Entries(Box::new(vault.search(query, args.get_flag("trash"))))
         }
-        "mkdir" => committed_output(format_args!(
-            "{}",
-            vault.mkdir(target_parent(args)?, get::<String>(args, "name"), operation)?
-        ))?,
-        "import" => committed_output(format_args!(
-            "{}",
-            vault.import_file(
-                target_parent(args)?,
-                get::<String>(args, "name"),
-                get::<PathBuf>(args, "source"),
-                operation
-            )?
-        ))?,
-        "replace" => vault.replace_file(
-            *get::<Id>(args, "id"),
-            get::<PathBuf>(args, "source"),
-            operation,
-        )?,
-        "export" => vault.export_file(
-            *get::<Id>(args, "id"),
-            get::<PathBuf>(args, "destination"),
-            operation,
-        )?,
-        "rename" => vault.rename(
-            *get::<Id>(args, "id"),
+        "mkdir" => Response::Id(vault.mkdir(
+            target_parent(args)?,
             get::<String>(args, "name"),
             operation,
-        )?,
-        "move" => vault.move_entry(*get::<Id>(args, "id"), target_parent(args)?, operation)?,
-        "trash" => vault.trash_entry(*get::<Id>(args, "id"), operation)?,
-        "restore" => vault.restore_entry(*get::<Id>(args, "id"), operation)?,
-        "empty-trash" => cleanup(vault.empty_trash(operation)?)?,
-        "gc" => cleanup(vault.collect_garbage(operation)?)?,
-        "space" => output(format_args!(
-            "{:#?}\n回收站空间须先清空；回收无引用对象将退役所有本地历史快照。",
-            vault.storage_usage()?
-        ))?,
-        "check" => {
-            let report = vault.verify_content(operation)?;
-            let printed = output(format_args!("{report:#?}"));
-            if !report.failed_objects.is_empty() {
-                return Err(Error::Authentication);
-            }
-            printed?;
+        )?),
+        "import" => Response::Id(vault.import_file(
+            target_parent(args)?,
+            get::<String>(args, "name"),
+            get::<PathBuf>(args, "source"),
+            operation,
+        )?),
+        "replace" => {
+            vault.replace_file(
+                *get::<Id>(args, "id"),
+                get::<PathBuf>(args, "source"),
+                operation,
+            )?;
+            Response::Empty
         }
+        "export" => {
+            vault.export_file(
+                *get::<Id>(args, "id"),
+                get::<PathBuf>(args, "destination"),
+                operation,
+            )?;
+            Response::Empty
+        }
+        "rename" => {
+            vault.rename(
+                *get::<Id>(args, "id"),
+                get::<String>(args, "name"),
+                operation,
+            )?;
+            Response::Empty
+        }
+        "move" => {
+            vault.move_entry(*get::<Id>(args, "id"), target_parent(args)?, operation)?;
+            Response::Empty
+        }
+        "trash" => {
+            vault.trash_entry(*get::<Id>(args, "id"), operation)?;
+            Response::Empty
+        }
+        "restore" => {
+            vault.restore_entry(*get::<Id>(args, "id"), operation)?;
+            Response::Empty
+        }
+        "empty-trash" => Response::Cleanup(vault.empty_trash(operation)?),
+        "gc" => Response::Cleanup(vault.collect_garbage(operation)?),
+        "space" => Response::Space(vault.storage_usage()?),
+        "check" => Response::Content(vault.verify_content(operation)?),
         _ => return Err(Error::InvalidInput),
-    }
-    Ok(())
-}
-
-fn cleanup(report: CleanupReport) -> Result<()> {
-    let printed = committed_output(format_args!(
-        "回收站提交={}；退役快照={}；已删除对象字节={}；临时文件字节={}",
-        report.trash_committed,
-        report.retired_snapshots,
-        report.reclaimed_object_bytes,
-        report.removed_temporary_bytes
-    ));
-    if let Some(error) = report.failure {
-        diagnostic("清理未完成，可重试；已提交的目录变更不会回滚。");
-        return Err(error);
-    }
-    printed
+    })
 }

@@ -158,6 +158,32 @@ class CliTests(unittest.TestCase):
         self.assertIn("authentication failed", stderr)
         self.assertNotIn("保留资料", stderr)
 
+    def test_json_results_and_failed_content_report(self):
+        self.assertEqual(json.loads(self.call("create", "--json", confirm=True)[0]), {"ok": True})
+        directory = json.loads(self.call("mkdir", "目录", "--json")[0])["id"]
+        source = self.root / "source"
+        source.write_bytes(b"authenticated content")
+        file_id = json.loads(self.call("import", source, "资料", "--parent", directory,
+                                       "--json")[0])["id"]
+        entries = json.loads(self.call("list", "--json")[0])["entries"]
+        self.assertEqual({e["id"] for e in entries}, {directory, file_id})
+        self.assertGreater(json.loads(self.call("space", "--json")[0])["active_object_bytes"], 0)
+        inspection = json.loads(self.call("inspect", "--json")[0])
+        self.assertRegex(inspection["head"], r"^[0-9a-f]{32}$")
+        self.assertEqual(inspection["issues"], [])
+        report = json.loads(self.call("check", "--json")[0])
+        self.assertEqual(report, {"verified_objects": 1, "plaintext_bytes": len(source.read_bytes()),
+                                  "failed_objects": []})
+        cleanup = json.loads(self.call("gc", "--confirm", "--json")[0])
+        self.assertIsNone(cleanup["failure"])
+        self.assertFalse(cleanup["trash_committed"])
+        obj = next((self.vault / "objects").iterdir())
+        damaged = bytearray(obj.read_bytes())
+        damaged[-1] ^= 1
+        obj.write_bytes(damaged)
+        report = json.loads(self.call("check", "--json", expected=1)[0])
+        self.assertEqual(report["failed_objects"], [obj.name])
+
     def test_required_confirmation_and_no_controlling_terminal(self):
         for command in ["empty-trash", "gc"]:
             result = subprocess.run([CLI, command, str(self.vault)], capture_output=True,

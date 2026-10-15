@@ -1,4 +1,5 @@
 mod commands;
+mod response;
 
 use std::{
     io::{self, Write},
@@ -23,13 +24,13 @@ fn main() -> ExitCode {
     let operation = Operation::default();
     let cancellation = operation.clone();
     if ctrlc::set_handler(move || cancellation.cancel()).is_err() {
-        let _ = writeln!(io::stderr().lock(), "无法安装取消处理器");
+        response::diagnostic("无法安装取消处理器");
         return ExitCode::FAILURE;
     }
     match commands::run(&matches, &operation) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let _ = writeln!(io::stderr().lock(), "{error}");
+            response::diagnostic(&error.to_string());
             ExitCode::from(if matches!(error, Error::Cancelled) {
                 130
             } else {
