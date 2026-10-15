@@ -27,6 +27,8 @@ jobs:
           cargo test --locked -p vault-cli
           env -u DISPLAY -u WAYLAND_DISPLAY cargo run --locked -p vault-cli -- --help
           env -u DISPLAY -u WAYLAND_DISPLAY cargo run --locked -p vault-cli -- --version
+          cargo build --locked -p vault-cli --example password-probe
+          python3 scripts/test-terminal.py target/debug/examples/password-probe
       - name: Install GUI build dependencies
         run: |
           sudo apt-get update

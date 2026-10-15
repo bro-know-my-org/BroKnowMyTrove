@@ -12,6 +12,9 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 vault-core.workspace = true
+crossterm.workspace = true
+unicode-segmentation.workspace = true
+zeroize.workspace = true
 
 [lints]
 workspace = true

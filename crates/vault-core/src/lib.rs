@@ -11,4 +11,4 @@ pub const PRODUCT_NAME: &str = "BroKnowMyTrove";
 
 /// Explicitly describes the capabilities of this engineering milestone.
 pub const DEVELOPMENT_STATUS: &str =
-    "M0.1 engineering skeleton. Vault operations and encryption are not implemented.";
+    "Experimental development build. No stable format or independent security audit yet.";
