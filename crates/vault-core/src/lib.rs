@@ -9,6 +9,9 @@ mod error;
 mod keyfile;
 #[allow(dead_code)] // Schema is consumed by the following persistence stage.
 mod model;
+pub mod operation;
+#[allow(dead_code)]
+mod stream;
 
 pub use error::{Error, Result};
 pub use keyfile::{CreateOptions, Credential};
