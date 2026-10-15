@@ -905,6 +905,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2746,11 +2756,13 @@ dependencies = [
  "hex",
  "libc",
  "libsodium-sys-stable",
+ "same-file",
  "serde",
  "serde_json",
  "tempfile",
  "unicode-casefold",
  "unicode-normalization",
+ "vault-platform",
  "zeroize",
 ]
 
@@ -2761,6 +2773,15 @@ dependencies = [
  "eframe",
  "vault-core",
  "zeroize",
+]
+
+[[package]]
+name = "vault-platform"
+version = "0.1.0"
+dependencies = [
+ "fs2",
+ "rustix 1.1.5",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

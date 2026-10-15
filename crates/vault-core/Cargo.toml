@@ -16,6 +16,8 @@ serde_json.workspace = true
 hex.workspace = true
 unicode-casefold.workspace = true
 tempfile.workspace = true
+vault-platform.workspace = true
+same-file.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
