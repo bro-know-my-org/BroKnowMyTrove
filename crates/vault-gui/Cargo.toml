@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 eframe.workspace = true
+rfd.workspace = true
 vault-core.workspace = true
 zeroize.workspace = true
 

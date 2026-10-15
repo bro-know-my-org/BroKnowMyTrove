@@ -1,12 +1,17 @@
 use eframe::egui;
 use std::time::{Duration, Instant};
 use vault_core::{
-    CreateOptions, EntryKind, Error, Id, Result,
+    CreateOptions, EntryKind, Error, Id, OpenMode, Result,
     crypto::{Password, RecoveryKey},
 };
 use zeroize::Zeroizing;
 
+mod actions;
+mod files_ui;
+mod picker;
 mod session;
+use actions::Action;
+use picker::{PathInput, Picker, Target};
 use session::{Request, Session, Task};
 
 fn main() -> eframe::Result {
@@ -38,21 +43,27 @@ fn main() -> eframe::Result {
 
 #[derive(Default)]
 struct Form {
-    path: String,
+    path: PathInput,
     phrase: Zeroizing<String>,
     confirmation: Zeroizing<String>,
     create: bool,
     recovery: bool,
     show_password: bool,
+    read_only: bool,
 }
 
 impl Form {
     fn request(&mut self) -> Result<Request> {
+        let mode = if self.read_only {
+            OpenMode::ReadOnly
+        } else {
+            OpenMode::ReadWrite
+        };
         let mut phrase = std::mem::take(&mut self.phrase);
         let mut confirmation = std::mem::take(&mut self.confirmation);
         self.show_password = false;
         if !self.create && self.recovery {
-            return Ok(Request::Recover(RecoveryKey::decode(&phrase)?));
+            return Ok(Request::Recover(RecoveryKey::decode(&phrase)?, mode));
         }
         let password = Password::new(std::mem::take(&mut *phrase))?;
         if self.create {
@@ -67,7 +78,7 @@ impl Form {
                 },
             ))
         } else {
-            Ok(Request::Open(password))
+            Ok(Request::Open(password, mode))
         }
     }
 }
@@ -77,14 +88,17 @@ struct Browser {
     query: Zeroizing<String>,
     parent: Option<Id>,
     trash: bool,
+    selected: Option<Id>,
 }
 
 #[derive(Default)]
 struct VaultApp {
     form: Form,
     browser: Browser,
+    editor: files_ui::Editor,
     session: Option<Session>,
     task: Option<Task>,
+    picker: Option<Picker>,
     discard_result: bool,
     close_when_done: bool,
     notice: String,
@@ -98,7 +112,9 @@ impl VaultApp {
             self.discard_result = true;
         }
         self.session = None;
+        self.picker = None;
         self.browser = Browser::default();
+        self.editor = files_ui::Editor::default();
         self.form.phrase = Zeroizing::default();
         self.form.confirmation = Zeroizing::default();
         self.form.show_password = false;
@@ -107,24 +123,48 @@ impl VaultApp {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        if let Some(selection) = self.picker.as_ref().and_then(Picker::poll) {
+            let target = self.picker.take().unwrap().target;
+            if let Some(path) = selection {
+                match target {
+                    Target::Vault => self.form.path.set(if self.form.create {
+                        path.join("新保险库")
+                    } else {
+                        path
+                    }),
+                    Target::Source => {
+                        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                            self.editor.name = Zeroizing::new(name.into());
+                        }
+                        self.editor.path.set(path);
+                    }
+                    Target::Destination => self.editor.path.set(path),
+                }
+            } else {
+                self.notice = "选择已取消或系统选择器不可用；可手填路径。".into();
+            }
+        }
         if let Some(result) = self.task.as_ref().and_then(Task::poll) {
             self.task = None; // Join before accepting another operation.
             if self.discard_result {
                 drop(result);
-                self.notice = "已停止并锁定；创建可能已完成，请重新打开核查。".into();
+                self.notice = "已停止并锁定；操作可能已提交，请重新打开核查。".into();
             } else {
-                match result {
-                    Ok(session) => {
-                        self.session = Some(session);
+                self.session = result.session;
+                match result.result {
+                    Ok(message) => {
                         self.form.create = false;
                         self.form.recovery = false;
-                        self.notice.clear();
+                        self.notice = message;
                         self.last_activity = Some(Instant::now());
                     }
                     Err(error) => {
                         self.notice =
-                            format!("{error}；若正在创建，请检查目录，已创建的库仍可用密码打开。")
+                            format!("{error}；已完成的提交不会回滚，结果不确定时请锁定并重新检查。")
                     }
+                }
+                if self.session.is_none() {
+                    self.lock(ctx);
                 }
             }
             self.discard_result = false;
@@ -139,7 +179,7 @@ impl VaultApp {
         if active {
             self.last_activity = Some(time);
         }
-        if self.session.is_some()
+        if (self.session.is_some() || self.task.is_some())
             && self
                 .last_activity
                 .is_some_and(|last| time.duration_since(last) >= Duration::from_secs(300))
@@ -162,8 +202,17 @@ impl VaultApp {
 
     fn login(&mut self, ui: &mut egui::Ui) {
         ui.label("保险库目录（新建时填写不存在的目录）：");
-        ui.text_edit_singleline(&mut self.form.path);
+        self.form.path.ui(ui);
+        if ui.button("选择目录（创建时追加“新保险库”）").clicked() {
+            self.pick(Target::Vault, ui.ctx());
+        }
         ui.checkbox(&mut self.form.create, "创建新保险库");
+        if !self.form.create {
+            ui.checkbox(
+                &mut self.form.read_only,
+                "只读打开（损坏引用时可检查/导出）",
+            );
+        }
         ui.checkbox(
             &mut self.form.recovery,
             if self.form.create {
@@ -198,9 +247,10 @@ impl VaultApp {
             )
             .clicked()
         {
-            let result = self.form.request().and_then(|request| {
-                Task::start(self.form.path.clone().into(), request, ui.ctx().clone())
-            });
+            let result = self
+                .form
+                .request()
+                .and_then(|request| Task::start(self.form.path.path(), request, ui.ctx().clone()));
             ui.ctx().memory_mut(|memory| *memory = Default::default());
             match result {
                 Ok(task) => {
@@ -214,7 +264,31 @@ impl VaultApp {
         }
     }
 
-    fn browse(&mut self, ui: &mut egui::Ui) {
+    fn start_action(&mut self, action: Action, ctx: &egui::Context) {
+        let Some(session) = self.session.take() else {
+            return;
+        };
+        match Task::action(session, action, ctx.clone()) {
+            Ok(task) => {
+                self.task = Some(task);
+                self.notice.clear();
+                self.last_activity = Some(Instant::now());
+            }
+            Err(error) => {
+                self.lock(ctx);
+                self.notice = format!("任务未启动，会话已锁定：{error}");
+            }
+        }
+    }
+
+    fn pick(&mut self, target: Target, ctx: &egui::Context) {
+        match Picker::start(target, ctx.clone()) {
+            Ok(picker) => self.picker = Some(picker),
+            Err(error) => self.notice = format!("无法启动选择器：{error}；可手填路径。"),
+        }
+    }
+
+    fn browse(&mut self, ui: &mut egui::Ui) -> Option<Action> {
         let session = self.session.as_mut().expect("unlocked session");
         if let Some(recovery) = &mut session.recovery {
             ui.label("恢复密钥仅在此显示一次，请独立保存；它不替代数据备份。");
@@ -224,9 +298,13 @@ impl VaultApp {
                 session.recovery = None;
                 ui.ctx().memory_mut(|memory| *memory = Default::default());
             }
-            return;
+            return None;
         }
-        ui.label("当前提供只读浏览；文件修改请使用 CLI。空闲 5 分钟自动锁定。");
+        ui.label(if session.vault.is_writable() {
+            "已解锁，可修改；空闲 5 分钟会取消任务并锁定。"
+        } else {
+            "只读会话：可浏览、检查与导出。"
+        });
         if !session.vault.issues().is_empty() {
             ui.colored_label(
                 egui::Color32::YELLOW,
@@ -248,6 +326,7 @@ impl VaultApp {
             }
             ui.checkbox(&mut self.browser.trash, "回收站（平铺）");
         });
+        let action = self.editor.ui(ui, &session.vault, &self.browser);
         ui.label(
             self.browser
                 .parent
@@ -286,10 +365,17 @@ impl VaultApp {
                             ui.label(format!("{length} 字节"));
                         }
                     }
-                    ui.label(&entry.name);
+                    if ui
+                        .selectable_label(self.browser.selected == Some(entry.id), &entry.name)
+                        .clicked()
+                    {
+                        self.browser.selected = Some(entry.id);
+                        self.editor.name = Zeroizing::new(entry.name.clone());
+                    }
                 });
             }
         });
+        action
     }
 }
 
@@ -313,18 +399,47 @@ impl eframe::App for VaultApp {
             ui.heading(vault_core::PRODUCT_NAME);
             ui.label("实验版本，仅使用可丢弃测试数据；格式未稳定，未经独立安全审计。");
             ui.horizontal(|ui| {
-                if (self.session.is_some() || self.task.is_some()) && ui.button("锁定 / 取消任务").clicked() { self.lock(&ctx); }
-                if ui.button("关闭 (Ctrl+Q)").clicked() { self.tick(&ctx, Instant::now(), true, true); }
+                if (self.session.is_some() || self.task.is_some() || self.picker.is_some())
+                    && ui.button("锁定 / 取消任务").clicked()
+                {
+                    self.lock(&ctx);
+                }
+                if ui.button("关闭 (Ctrl+Q)").clicked() {
+                    self.tick(&ctx, Instant::now(), true, true);
+                }
             });
             ui.separator();
             ui.label(&self.notice);
-            if self.task.is_some() {
+            if let Some(task) = &self.task {
                 ui.spinner();
-                ui.label("正在处理；密码计算不能立即中断。取消或关闭会等待安全结束并释放锁，创建可能已提交。");
+                if let Some(progress) = task.progress().filter(|progress| progress.total > 0) {
+                    ui.add(
+                        egui::ProgressBar::new(progress.processed as f32 / progress.total as f32)
+                            .text(format!("{} / {} 字节", progress.processed, progress.total)),
+                    );
+                }
+                ui.label(
+                    "正在处理；取消/关闭等待安全结束，已提交操作不会回滚。密码计算不能立即中断。",
+                );
             } else if self.session.is_some() {
-                self.browse(ui);
+                ui.add_enabled_ui(self.picker.is_none(), |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("选择导入/替换源文件").clicked() {
+                            self.pick(Target::Source, &ctx);
+                        }
+                        if ui.button("选择导出目标").clicked() {
+                            self.pick(Target::Destination, &ctx);
+                        }
+                    });
+                    if let Some(action) = self.browse(ui) {
+                        self.start_action(action, &ctx);
+                    }
+                });
             } else if !self.close_when_done {
-                self.login(ui);
+                ui.add_enabled_ui(self.picker.is_none(), |ui| self.login(ui));
+            }
+            if self.picker.is_some() {
+                ui.label("等待系统选择器；锁定会丢弃选择结果，可在系统对话框中取消。");
             }
         });
     }

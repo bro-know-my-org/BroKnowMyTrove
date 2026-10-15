@@ -13,6 +13,7 @@ publish = false
 vault-core = { path = "crates/vault-core" }
 clap = "=4.6.7"
 eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+rfd = "=0.17.2"
 alkali = { version = "=0.3.0", default-features = false, features = ["std"] }
 libsodium-sys-stable = "=1.24.3"
 zeroize = "=1.9.1"
