@@ -19,7 +19,8 @@ CLI = os.path.abspath(sys.argv[1])
 PASSWORD = "中文端到端café"
 
 
-def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expected=0, during=None):
+def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expected=0, during=None,
+            stdout_sink=None, disconnect_terminal=False):
     master, slave = pty.openpty()
     before = termios.tcgetattr(slave)
     transcript = b""
@@ -27,13 +28,16 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
     def attach():
         os.setsid()
         fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+        if disconnect_terminal:
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
     env = dict(os.environ, LC_ALL=locale)
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
     process = subprocess.Popen(
         [CLI, *map(str, args)], stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+        stdout=stdout_sink if stdout_sink is not None else subprocess.PIPE,
+        stderr=subprocess.PIPE, env=env,
         pass_fds=(slave,), preexec_fn=attach,
     )
 
@@ -52,23 +56,35 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
         if confirm:
             wait("再次输入密码: ")
             os.write(master, (PASSWORD + "\r").encode())
+        if disconnect_terminal:
+            wait("\x1b[?2004l")
+            end = time.monotonic() + 2
+            while termios.tcgetattr(slave) != before:
+                if time.monotonic() > end:
+                    raise AssertionError("terminal not restored before disconnect")
+                time.sleep(0.001)
+            os.close(master)
+            master = None
         if during:
             during(process)
         stdout, stderr = process.communicate(timeout=20)
-        while select.select([master], [], [], 0)[0]:
+        stdout = stdout or b""
+        while master is not None and select.select([master], [], [], 0)[0]:
             transcript += os.read(master, 65536)
         if process.returncode != expected:
             raise AssertionError(f"CLI {args[0]} exit={process.returncode}, expected={expected}; {stderr!r}")
-        if termios.tcgetattr(slave) != before:
+        if master is not None and termios.tcgetattr(slave) != before:
             raise AssertionError("CLI did not restore terminal attributes")
-        if credential.encode() in transcript + stdout + stderr:
+        secrets = [credential, PASSWORD] if confirm else [credential]
+        if any(secret.encode() in transcript + stdout + stderr for secret in secrets):
             raise AssertionError("CLI exposed its credential")
         return stdout.decode(), stderr.decode(), transcript.decode()
     finally:
         if process.poll() is None:
             process.kill()
             process.wait()
-        os.close(master)
+        if master is not None:
+            os.close(master)
         os.close(slave)
 
 
@@ -100,10 +116,14 @@ class CliTests(unittest.TestCase):
         target = self.root / "导出"
         self.call("export", file_id, target, "--recovery-key", credential=recovery)
         self.assertEqual(target.read_bytes(), source.read_bytes())
+        original = target.read_bytes()
         source.write_bytes(b"replacement")
         self.call("replace", file_id, source)
         self.call("export", file_id, target, expected=1)
-        self.assertNotEqual(target.read_bytes(), source.read_bytes())
+        self.assertEqual(target.read_bytes(), original)
+        replacement = self.root / "replacement-export"
+        self.call("export", file_id, replacement)
+        self.assertEqual(replacement.read_bytes(), source.read_bytes())
         self.call("rename", file_id, "更名资料")
         self.call("move", file_id)
         self.call("trash", file_id)
@@ -159,20 +179,35 @@ class CliTests(unittest.TestCase):
         def interrupt(process, action):
             end = time.monotonic() + 20
             while True:
-                growing = any(path.stat().st_size > 1048576
-                              for path in (self.vault / "objects").glob(".tmp-*")
-                              if path.exists())
-                if growing:
-                    os.kill(process.pid, signal.SIGSTOP)
-                    if action == signal.SIGINT:
-                        _, stderr, _ = self.call("mkdir", "并发拒绝", expected=1)
-                        self.assertIn("another local process", stderr)
-                    os.kill(process.pid, action)
-                    if action != signal.SIGKILL:
-                        os.kill(process.pid, signal.SIGCONT)
-                    return
                 if process.poll() is not None or time.monotonic() > end:
                     raise AssertionError("did not observe active stream before interruption")
+                os.kill(process.pid, signal.SIGSTOP)
+                try:
+                    # A signal being sent is not acknowledgement that the process stopped.
+                    while True:
+                        pid, status = os.waitpid(process.pid, os.WUNTRACED | os.WNOHANG)
+                        if pid:
+                            if not os.WIFSTOPPED(status):
+                                process.returncode = os.waitstatus_to_exitcode(status)
+                                raise AssertionError("import exited before interruption")
+                            break
+                        if time.monotonic() > end:
+                            raise AssertionError("import did not acknowledge SIGSTOP")
+                        time.sleep(0.001)
+                    # All namespace/size observations are now made while the importer is frozen.
+                    growing = any(path.stat().st_size > 1048576
+                                  for path in (self.vault / "objects").glob(".tmp-*"))
+                    if growing:
+                        self.assertFalse(any(not path.name.startswith(".tmp-")
+                                             for path in (self.vault / "objects").iterdir()))
+                        if action == signal.SIGINT:
+                            _, stderr, _ = self.call("mkdir", "并发拒绝", expected=1)
+                            self.assertIn("another local process", stderr)
+                        os.kill(process.pid, action)
+                        return
+                finally:
+                    if process.poll() is None:
+                        os.kill(process.pid, signal.SIGCONT)
                 time.sleep(0.002)
 
         for action, code in [(signal.SIGINT, 130), (signal.SIGKILL, -signal.SIGKILL)]:
@@ -186,6 +221,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual((self.root / "result").read_bytes(), source.read_bytes())
         self.call("gc", "--confirm")
         self.assertFalse(any((self.vault / "objects").glob(".tmp-*")))
+
+    @unittest.skipUnless(sys.platform == "linux", "requires /dev/full")
+    def test_recovery_key_delivery_survives_status_output_failure(self):
+        with open("/dev/full", "wb", buffering=0) as sink:
+            _, stderr, terminal = self.call("create", "--recovery", confirm=True,
+                                            expected=1, stdout_sink=sink)
+        self.assertIn("结果输出失败", stderr)
+        recovery = re.search(r"[0-9a-f]{64}-[0-9a-f]{8}", terminal).group()
+        self.assertEqual(self.call("list", "--recovery-key", credential=recovery)[0], "")
+
+    def test_recovery_terminal_failure_reports_the_committed_vault(self):
+        stdout, stderr, terminal = self.call("create", "--recovery", confirm=True,
+                                             expected=1, disconnect_terminal=True)
+        self.assertEqual(stdout, "")
+        self.assertIn("保险库已创建，但恢复密钥显示失败", stderr)
+        self.assertIn("仍可使用密码打开", stderr)
+        self.assertIsNone(re.search(r"[0-9a-f]{64}-[0-9a-f]{8}", terminal + stdout + stderr))
+        self.assertEqual(self.call("list")[0], "")
 
 
 if __name__ == "__main__":
