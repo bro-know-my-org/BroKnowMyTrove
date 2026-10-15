@@ -48,7 +48,6 @@ impl Operation {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn checkpoint(&self, point: Point) -> Result<()> {
         #[cfg(test)]
         if self.fault == Some(point) {
@@ -59,7 +58,6 @@ impl Operation {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Point {
     ObjectWritten,
@@ -76,6 +74,7 @@ pub(crate) enum Point {
     CommitDirectorySynced,
     RecoverySnapshotsRetired,
     BeforeObjectReclaim,
+    ObjectReclaimed,
     ExportSynced,
     ExportPublished,
 }

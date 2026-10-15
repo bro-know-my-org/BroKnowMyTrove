@@ -4,9 +4,9 @@ mod codec;
 pub mod crypto;
 mod error;
 mod files;
+mod garbage;
 mod keyfile;
 mod ledger;
-#[allow(dead_code)] // Schema is consumed by the following persistence stage.
 mod model;
 pub mod operation;
 mod store;
@@ -16,6 +16,7 @@ mod vault;
 
 pub use error::{Error, Result};
 pub use files::ContentReport;
+pub use garbage::{CleanupReport, StorageUsage};
 pub use keyfile::{CreateOptions, Credential};
 pub use ledger::{CommitInfo, Inspection, Issue};
 pub use model::{Entry, EntryKind, Id};
