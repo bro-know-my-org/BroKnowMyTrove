@@ -37,6 +37,18 @@ pub fn read_recovery() -> Result<RecoveryKey> {
     RecoveryKey::decode(&terminal.read("恢复密钥: ")?)
 }
 
+/// Explicit one-time display on the controlling terminal, never stdout or diagnostics.
+pub fn show_recovery(key: &RecoveryKey) -> Result<()> {
+    let mut terminal = Terminal::open()?;
+    write!(
+        terminal.output,
+        "恢复密钥（请独立保存）: {}\r\n",
+        *key.encode()?
+    )?;
+    terminal.output.flush()?;
+    Ok(())
+}
+
 struct Terminal {
     output: File,
 }

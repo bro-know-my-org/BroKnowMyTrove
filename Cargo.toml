@@ -28,6 +28,7 @@ libc = "=0.2.190"
 fs2 = "=0.4.3"
 rustix = { version = "=1.1.5", features = ["fs"] }
 same-file = "=1.0.6"
+ctrlc = "=3.5.1"
 vault-platform = { path = "crates/vault-platform" }
 windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 

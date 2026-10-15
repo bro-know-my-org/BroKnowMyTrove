@@ -47,6 +47,10 @@ impl Operation {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
+    pub fn check_cancelled(&self) -> Result<()> {
+        self.check()
+    }
+
     pub fn with_progress(mut self, observer: impl Fn(Progress) + Send + Sync + 'static) -> Self {
         self.observer = Some(Arc::new(observer));
         self

@@ -158,6 +158,13 @@ impl Vault {
             &snapshot,
             SNAPSHOT_LIMIT,
         )?;
+        crate::files::ensure_capacity(
+            &self.store.root,
+            (bytes.len() as u64)
+                .checked_add(COMMIT_LIMIT as u64 + 4096)
+                .ok_or(Error::ResourceLimit)?,
+            bytes.len() as u64,
+        )?;
         self.store
             .publish_bytes(Kind::Snapshot, snapshot_id, &bytes, operation)?;
         operation.check()?;

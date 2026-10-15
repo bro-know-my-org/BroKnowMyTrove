@@ -233,7 +233,7 @@ pub struct ContentReport {
     pub failed_objects: Vec<Id>,
 }
 
-fn ensure_capacity(path: &Path, required: u64, largest_file: u64) -> Result<()> {
+pub(crate) fn ensure_capacity(path: &Path, required: u64, largest_file: u64) -> Result<()> {
     let capacity = vault_platform::capacity(path)?;
     if capacity.available < required || capacity.max_file_size.is_some_and(|max| largest_file > max)
     {

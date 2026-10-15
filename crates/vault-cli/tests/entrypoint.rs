@@ -26,7 +26,7 @@ fn help_and_version_work_without_a_display() {
 }
 
 #[test]
-fn unavailable_vault_operation_fails_instead_of_claiming_success() {
+fn missing_arguments_fail_before_requesting_credentials() {
     let output = run(&["create"]);
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());

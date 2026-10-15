@@ -15,6 +15,8 @@ vault-core.workspace = true
 crossterm.workspace = true
 unicode-segmentation.workspace = true
 zeroize.workspace = true
+serde_json.workspace = true
+ctrlc.workspace = true
 
 [lints]
 workspace = true
