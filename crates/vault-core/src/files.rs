@@ -105,7 +105,7 @@ impl Vault {
             object,
             length,
             &mut input,
-            &mut temporary,
+            &mut operation.writer(&mut temporary),
             operation,
         )?;
         let after = source.symlink_metadata()?;
@@ -156,7 +156,7 @@ impl Vault {
             object,
             length,
             &mut input,
-            &mut temporary,
+            &mut operation.writer(&mut temporary),
             operation,
         )?;
         if let Some(timestamp) = modified_ns {
@@ -177,7 +177,7 @@ impl Vault {
             .map_err(|_| Error::ExportUncertain)
     }
 
-    pub fn verify_content(&self, operation: &Operation) -> Result<ContentReport> {
+    pub fn verify_content(&mut self, operation: &Operation) -> Result<ContentReport> {
         let mut report = ContentReport::default();
         let mut seen = std::collections::HashSet::new();
         for entry in self.entries() {
@@ -211,6 +211,16 @@ impl Vault {
                     Err(_) => report.failed_objects.push(object),
                 }
             }
+        }
+        if !report.failed_objects.is_empty() {
+            self.writable = false;
+            self.issues.extend(
+                report
+                    .failed_objects
+                    .iter()
+                    .copied()
+                    .map(crate::Issue::DamagedObject),
+            );
         }
         Ok(report)
     }

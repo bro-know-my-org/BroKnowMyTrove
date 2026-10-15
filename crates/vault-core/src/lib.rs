@@ -14,6 +14,9 @@ mod stream;
 mod tree;
 mod vault;
 
+#[cfg(test)]
+mod recovery_tests;
+
 pub use error::{Error, Result};
 pub use files::ContentReport;
 pub use garbage::{CleanupReport, StorageUsage};

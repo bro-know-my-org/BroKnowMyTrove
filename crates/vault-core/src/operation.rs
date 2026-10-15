@@ -17,9 +17,27 @@ pub struct Operation {
     observer: Option<Arc<dyn Fn(Progress) + Send + Sync>>,
     #[cfg(test)]
     pub(crate) fault: Option<Point>,
+    #[cfg(test)]
+    write_limit: Option<u64>,
 }
 
 impl Operation {
+    #[cfg(test)]
+    pub(crate) fn with_write_limit(mut self, bytes: u64) -> Self {
+        self.write_limit = Some(bytes);
+        self
+    }
+
+    pub(crate) fn writer<'a, W: std::io::Write>(
+        &self,
+        output: &'a mut W,
+    ) -> OperationWriter<'a, W> {
+        OperationWriter {
+            output,
+            #[cfg(test)]
+            remaining: self.write_limit,
+        }
+    }
     #[cfg(test)]
     pub(crate) fn failing_at(mut self, point: Point) -> Self {
         self.fault = Some(point);
@@ -55,6 +73,33 @@ impl Operation {
         }
         let _ = point;
         Ok(())
+    }
+}
+
+pub(crate) struct OperationWriter<'a, W> {
+    output: &'a mut W,
+    #[cfg(test)]
+    remaining: Option<u64>,
+}
+
+impl<W: std::io::Write> std::io::Write for OperationWriter<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        #[cfg(test)]
+        if let Some(remaining) = &mut self.remaining {
+            if *remaining == 0 {
+                return Err(std::io::ErrorKind::StorageFull.into());
+            }
+            // Both partial successful writes and a subsequent ENOSPC must be handled.
+            let count = bytes.len().min((*remaining).min(8192) as usize);
+            let written = self.output.write(&bytes[..count])?;
+            *remaining -= written as u64;
+            return Ok(written);
+        }
+        self.output.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.output.flush()
     }
 }
 

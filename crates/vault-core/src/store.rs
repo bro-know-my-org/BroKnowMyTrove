@@ -213,6 +213,26 @@ impl Store {
         result.ids.sort_unstable();
         Ok(result)
     }
+
+    pub fn unexpected_root_entry(&self) -> Result<bool> {
+        for (count, entry) in fs::read_dir(&self.root)?.enumerate() {
+            if count >= MAX_ENTRIES {
+                return Err(Error::ResourceLimit);
+            }
+            let entry = entry?;
+            let name = entry.file_name();
+            let kind = entry.file_type()?;
+            let expected = match name.to_str() {
+                Some("keys.json" | "write.lock") => kind.is_file(),
+                Some("objects" | "snapshots" | "commits") => kind.is_dir(),
+                _ => false,
+            };
+            if !expected {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 fn validate_directory(path: &Path) -> Result<()> {

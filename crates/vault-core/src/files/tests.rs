@@ -39,7 +39,7 @@ fn disk_roundtrip_reopen_unicode_empty_and_chunk_boundary() {
     }
     drop(vault);
     let password = Password::new("测试中文cafe\u{301}".into()).unwrap();
-    let vault = Vault::open(
+    let mut vault = Vault::open(
         &directory.path().join("vault"),
         Credential::Password(&password),
         OpenMode::ReadOnly,

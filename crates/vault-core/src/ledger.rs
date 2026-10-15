@@ -49,6 +49,9 @@ pub(crate) struct Ledger {
 
 pub(crate) fn scan(store: &Store, master: &Secret, vault: Id) -> Result<Ledger> {
     let mut report = Inspection::default();
+    if store.unexpected_root_entry()? {
+        report.issues.push(Issue::UnexpectedPhysicalEntry);
+    }
     let inventory = store.inventory(Kind::Commit)?;
     for kind in [Kind::Object, Kind::Snapshot, Kind::Commit] {
         let listing = store.inventory(kind)?;
