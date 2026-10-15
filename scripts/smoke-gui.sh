@@ -5,8 +5,21 @@ task_logs=$(mktemp -d /tmp/bkm-gui.XXXXXX)
 app_pid=
 server_pid=
 cleanup() {
-    test -z "$app_pid" || kill "$app_pid" 2>/dev/null || true
-    test -z "$server_pid" || kill "$server_pid" 2>/dev/null || true
+    for child in $app_pid $server_pid; do
+        kill "$child" 2>/dev/null || true
+    done
+    for attempt in {1..20}; do
+        alive=false
+        for child in $app_pid $server_pid; do
+            if kill -0 "$child" 2>/dev/null; then alive=true; fi
+        done
+        if ! "$alive"; then break; fi
+        sleep 0.1
+    done
+    for child in $app_pid $server_pid; do
+        if kill -0 "$child" 2>/dev/null; then kill -KILL "$child" 2>/dev/null || true; fi
+        wait "$child" 2>/dev/null || true
+    done
 }
 trap cleanup EXIT
 printf 'GUI logs=%s\n' "$task_logs"

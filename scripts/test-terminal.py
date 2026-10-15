@@ -72,9 +72,11 @@ class TerminalTests(unittest.TestCase):
             session.send(second + "\r")
             code, stdout, stderr = session.finish()
             self.assertEqual(code, 0, stderr)
+            self.assertEqual(stderr, b"")
             self.assertIn(b"stdin-bytes=7", stdout)
             self.assertIn(b"*", session.transcript)
-            self.assertNotIn("中文".encode(), session.transcript)
+            for channel in (session.transcript, stdout, stderr):
+                self.assertNotIn("中文".encode(), channel)
 
     def test_unicode_nfc_backspace_and_separate_stdin(self):
         self.confirm("中文cafe\u0301x\x7f", "中文café")
@@ -90,22 +92,29 @@ class TerminalTests(unittest.TestCase):
             session.send("中文甲\r")
             session.wait_for("再次输入密码: ")
             session.send("中文乙\r")
-            self.assertNotEqual(session.finish()[0], 0)
+            code, _, stderr = session.finish()
+            self.assertEqual(code, 1)
+            self.assertIn(b"invalid input", stderr)
 
     def test_cancel_restores_terminal(self):
         with Session() as session:
             session.send("中文\x03")
-            self.assertNotEqual(session.finish()[0], 0)
+            code, _, stderr = session.finish()
+            self.assertEqual(code, 1)
+            self.assertIn(b"cancelled", stderr)
 
     def test_oversize_paste_restores_terminal(self):
         with Session() as session:
             session.send("\x1b[200~" + "密" * 1500 + "\x1b[201~")
-            self.assertNotEqual(session.finish()[0], 0)
+            code, _, stderr = session.finish()
+            self.assertEqual(code, 1)
+            self.assertIn(b"invalid input", stderr)
 
     def test_without_controlling_terminal_fails(self):
         result = subprocess.run([PROBE], input=b"password\n", capture_output=True,
                                 start_new_session=True, timeout=10)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(result.stderr)
         self.assertEqual(result.stdout, b"")
         self.assertNotIn(b"password", result.stderr)
 
