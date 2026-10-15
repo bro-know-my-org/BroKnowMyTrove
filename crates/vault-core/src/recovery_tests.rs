@@ -238,3 +238,79 @@ fn authenticated_fork_allows_explicit_readonly_export_but_no_automatic_winner() 
             .is_empty()
     );
 }
+
+#[test]
+fn cancellation_before_publication_keeps_old_state_but_after_publication_finishes_commit() {
+    for point in [
+        Point::CommitSynced,
+        Point::CommitPublished,
+        Point::CommitDirectorySynced,
+    ] {
+        let (temp, mut vault, password) = fixture();
+        let old = vault.current_commit();
+        let result = vault.mkdir(None, "目录", &Operation::default().cancelling_at(point));
+        let published = point != Point::CommitSynced;
+        if published {
+            assert!(result.is_ok());
+        } else {
+            assert!(matches!(result, Err(Error::Cancelled)));
+        }
+        drop(vault);
+        let vault = Vault::open(
+            &temp.path().join("vault"),
+            Credential::Password(&password),
+            OpenMode::ReadWrite,
+        )
+        .unwrap();
+        assert_eq!(vault.entries().count(), usize::from(published));
+        assert_eq!(vault.current_commit() != old, published);
+    }
+}
+
+#[test]
+fn interrupted_uncommitted_import_restarts_with_fresh_object_and_midstream_cancel_cleans_up() {
+    let (temp, mut vault, password) = fixture();
+    let source = temp.path().join("source");
+    fs::write(&source, vec![23; 3 * 1024 * 1024]).unwrap();
+    let op = Operation::default();
+    let cancel = op.clone();
+    let op = op.with_progress(move |_| cancel.cancel());
+    assert!(matches!(
+        vault.import_file(None, "文件", &source, &op),
+        Err(Error::Cancelled)
+    ));
+    assert_eq!(vault.store.inventory(Kind::Object).unwrap().temporary, 0);
+    assert!(
+        vault
+            .import_file(
+                None,
+                "文件",
+                &source,
+                &Operation::default().failing_at(Point::ObjectPublished)
+            )
+            .is_err()
+    );
+    let orphan = vault.store.inventory(Kind::Object).unwrap().ids[0];
+    drop(vault);
+    let mut vault = Vault::open(
+        &temp.path().join("vault"),
+        Credential::Password(&password),
+        OpenMode::ReadWrite,
+    )
+    .unwrap();
+    assert_eq!(vault.entries().count(), 0);
+    let id = vault
+        .import_file(None, "文件", &source, &Operation::default())
+        .unwrap();
+    let EntryKind::File { object, .. } = vault.entry(id).unwrap().kind else {
+        panic!()
+    };
+    assert_ne!(orphan, object);
+    assert!(
+        vault
+            .verify_content(&Operation::default())
+            .unwrap()
+            .failed_objects
+            .is_empty()
+    );
+}

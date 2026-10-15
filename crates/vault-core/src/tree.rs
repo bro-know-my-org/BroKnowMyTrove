@@ -33,6 +33,9 @@ impl Vault {
 
     pub fn move_entry(&mut self, id: Id, parent: Option<Id>, operation: &Operation) -> Result<()> {
         self.active_parent(parent)?;
+        if parent.is_some_and(|parent| self.snapshot.subtree(id).contains(&parent)) {
+            return Err(Error::InvalidInput);
+        }
         let mut next = self.snapshot.clone();
         let entry = next
             .entries

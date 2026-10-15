@@ -29,6 +29,7 @@ jobs:
           env -u DISPLAY -u WAYLAND_DISPLAY cargo run --locked -p vault-cli -- --version
           cargo build --locked -p vault-cli --example password-probe
           python3 scripts/test-terminal.py target/debug/examples/password-probe
+          python3 scripts/test-cli.py target/debug/bkm
       - name: Install GUI build dependencies
         run: |
           sudo apt-get update

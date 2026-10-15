@@ -19,12 +19,20 @@ pub struct Operation {
     pub(crate) fault: Option<Point>,
     #[cfg(test)]
     write_limit: Option<u64>,
+    #[cfg(test)]
+    cancel_at: Option<Point>,
 }
 
 impl Operation {
     #[cfg(test)]
     pub(crate) fn with_write_limit(mut self, bytes: u64) -> Self {
         self.write_limit = Some(bytes);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cancelling_at(mut self, point: Point) -> Self {
+        self.cancel_at = Some(point);
         self
     }
 
@@ -71,6 +79,10 @@ impl Operation {
     }
 
     pub(crate) fn checkpoint(&self, point: Point) -> Result<()> {
+        #[cfg(test)]
+        if self.cancel_at == Some(point) {
+            self.cancel();
+        }
         #[cfg(test)]
         if self.fault == Some(point) {
             return Err(Error::Io(std::io::ErrorKind::StorageFull));

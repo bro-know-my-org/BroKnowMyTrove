@@ -112,6 +112,9 @@ impl Snapshot {
                 let Some(id) = parent else {
                     break;
                 };
+                if id == entry.id {
+                    return Err(Error::InvalidFormat);
+                }
                 if depth == 128 {
                     return Err(Error::ResourceLimit);
                 }

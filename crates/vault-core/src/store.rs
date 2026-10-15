@@ -63,7 +63,10 @@ impl Kind {
 
 impl Store {
     pub fn create(root: &Path) -> Result<Self> {
+        #[cfg(unix)]
         let mut builder = fs::DirBuilder::new();
+        #[cfg(not(unix))]
+        let builder = fs::DirBuilder::new();
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;
@@ -148,7 +151,7 @@ impl Store {
         operation: &Operation,
     ) -> Result<()> {
         let mut temporary = self.temporary(kind)?;
-        temporary.write_all(bytes)?;
+        operation.writer(&mut temporary).write_all(bytes)?;
         self.publish(kind, id, temporary, operation)
     }
 
@@ -163,6 +166,7 @@ impl Store {
         operation.checkpoint(written)?;
         temporary.as_file().sync_all()?;
         operation.checkpoint(synced)?;
+        operation.check()?;
         let result = temporary
             .persist_noclobber(self.path(kind, id))
             .map_err(|error| Error::from(error.error));
