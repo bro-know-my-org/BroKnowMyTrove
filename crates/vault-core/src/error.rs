@@ -16,6 +16,7 @@ pub enum Error {
     SourceChanged,
     InsufficientSpace,
     CommitUncertain,
+    ExportUncertain,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -48,6 +49,9 @@ impl fmt::Display for Error {
             Self::SourceChanged => "source changed while being imported",
             Self::InsufficientSpace => "insufficient space or filesystem file-size limit",
             Self::CommitUncertain => "commit outcome uncertain; close and inspect the vault",
+            Self::ExportUncertain => {
+                "authenticated export published; directory durability uncertain"
+            }
         };
         f.write_str(message)
     }
