@@ -7,6 +7,8 @@ pub mod crypto;
 mod error;
 #[allow(dead_code)]
 mod keyfile;
+#[allow(dead_code)]
+mod ledger;
 #[allow(dead_code)] // Schema is consumed by the following persistence stage.
 mod model;
 pub mod operation;
@@ -17,6 +19,7 @@ mod stream;
 
 pub use error::{Error, Result};
 pub use keyfile::{CreateOptions, Credential};
+pub use ledger::{CommitInfo, Inspection, Issue};
 pub use model::{Entry, EntryKind, Id};
 
 /// Product name shared by both application entry points.
