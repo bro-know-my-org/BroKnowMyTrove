@@ -29,6 +29,7 @@ pub enum Issue {
     InvalidCommitGraph,
     UnexpectedPhysicalEntry,
     MissingSnapshot(Id),
+    DamagedSnapshot(Id),
     MissingObject(Id),
     DamagedObject(Id),
 }
