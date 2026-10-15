@@ -25,6 +25,10 @@ fn parent() -> Arg {
     Arg::new("parent")
         .long("parent")
         .default_value("root")
+        .value_parser(|value: &str| match value {
+            "root" => Ok(None),
+            value => value.parse::<Id>().map(Some),
+        })
         .help("目标目录 ID 或 root")
 }
 fn vault_command(name: &'static str, help: &'static str) -> Command {
@@ -118,16 +122,20 @@ pub fn command() -> Command {
         .subcommand(readable("space", "显示密文对象空间，单位字节"))
         .subcommand(vault_command("inspect", "认证提交图并检查当前元数据及引用"))
         .subcommand(readable("check", "逐对象完整认证全部内容"))
+        .subcommand(
+            readable(
+                "batch",
+                "单次解锁顺序执行 JSON Lines；失败即停，已完成操作不回滚",
+            )
+            .arg(path("input").help("命令文件；- 从数据 stdin 读取，最多 1 MiB / 1000 条")),
+        )
 }
 
 pub(crate) fn get<'a, T: Clone + Send + Sync + 'static>(args: &'a ArgMatches, name: &str) -> &'a T {
     args.get_one(name).expect("required command argument")
 }
 fn target_parent(args: &ArgMatches) -> Result<Option<Id>> {
-    match get::<String>(args, "parent").as_str() {
-        "root" => Ok(None),
-        id => Ok(Some(id.parse()?)),
-    }
+    Ok(*get::<Option<Id>>(args, "parent"))
 }
 
 pub(crate) fn open(args: &ArgMatches, path: &Path, mode: OpenMode) -> Result<Vault> {
@@ -148,6 +156,9 @@ pub(crate) fn readonly(name: &str) -> bool {
 pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
     let (name, args) = matches.subcommand().ok_or(Error::InvalidInput)?;
     let path = get::<PathBuf>(args, "vault");
+    if name == "batch" {
+        return crate::batch::run(args, operation);
+    }
     if name == "create" {
         let password = password::read_password(true)?;
         operation.check_cancelled()?;

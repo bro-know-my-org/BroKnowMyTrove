@@ -20,7 +20,7 @@ PASSWORD = "中文端到端café"
 
 
 def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expected=0, during=None,
-            stdout_sink=None, disconnect_terminal=False):
+            stdout_sink=None, disconnect_terminal=False, stdin_source=None, stderr_sink=None):
     master, slave = pty.openpty()
     before = termios.tcgetattr(slave)
     transcript = b""
@@ -35,9 +35,9 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
     process = subprocess.Popen(
-        [CLI, *map(str, args)], stdin=subprocess.DEVNULL,
+        [CLI, *map(str, args)], stdin=stdin_source if stdin_source is not None else subprocess.DEVNULL,
         stdout=stdout_sink if stdout_sink is not None else subprocess.PIPE,
-        stderr=subprocess.PIPE, env=env,
+        stderr=stderr_sink if stderr_sink is not None else subprocess.PIPE, env=env,
         pass_fds=(slave,), preexec_fn=attach,
     )
 
@@ -69,6 +69,7 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
             during(process)
         stdout, stderr = process.communicate(timeout=20)
         stdout = stdout or b""
+        stderr = stderr or b""
         while master is not None and select.select([master], [], [], 0)[0]:
             transcript += os.read(master, 65536)
         if process.returncode != expected:
@@ -83,6 +84,9 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
         if process.poll() is None:
             process.kill()
             process.wait()
+        for pipe in [process.stdout, process.stderr]:
+            if pipe is not None:
+                pipe.close()
         if master is not None:
             os.close(master)
         os.close(slave)
@@ -196,13 +200,115 @@ class CliTests(unittest.TestCase):
         self.assertFalse(self.vault.exists())
         self.assertNotIn(b"secret", result.stderr)
 
+    def test_batch_single_unlock_stdin_and_partial_failure(self):
+        terminal = self.call("create", "--recovery", confirm=True)[2]
+        recovery = re.search(r"[0-9a-f]{64}-[0-9a-f]{8}", terminal).group()
+        source = self.root / "source"
+        source.write_bytes(b"batch content")
+        plan = self.root / "commands.jsonl"
+        plan.write_text("\n".join(json.dumps(c) for c in [
+            ["import", str(source), "批量资料"], ["list"], ["check"], ["space"],
+        ]), encoding="utf-8")
+        with plan.open("rb") as data:
+            stdout, stderr, terminal = self.call("batch", "-", "--recovery-key",
+                                                 credential=recovery, stdin_source=data)
+        results = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual([r["index"] for r in results], [1, 2, 3, 4])
+        self.assertTrue(all(r["status"] == "ok" and r["error"] is None for r in results))
+        file_id = results[0]["result"]["id"]
+        self.assertEqual(results[1]["result"]["entries"][0]["id"], file_id)
+        self.assertEqual(terminal.count("\x1b[?2004h"), 1)
+        self.assertEqual(stderr, "")
+        plan.write_text("\n".join(json.dumps(c) for c in [
+            ["rename", file_id, "已完成"], ["rename", "0" * 32, "失败名称"], ["mkdir", "不应执行"],
+        ]), encoding="utf-8")
+        stdout, stderr, terminal = self.call("batch", plan, expected=1)
+        results = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual([r["status"] for r in results], ["ok", "error"])
+        self.assertIsNone(results[1]["result"])
+        self.assertEqual(terminal.count("\x1b[?2004h"), 1)
+        self.assertNotIn("失败名称", stderr)
+        self.assertEqual(json.loads(self.call("list")[0])["name"], "已完成")
+
+    def test_batch_preflight_and_historic_readonly_session(self):
+        self.call("create", confirm=True)
+        self.call("mkdir", "历史目录")
+        head = json.loads(self.call("inspect", "--json")[0])["head"]
+        self.call("mkdir", "最新目录")
+        plan = self.root / "commands.jsonl"
+        plan.write_text('["list"]\n["check"]\n', encoding="utf-8")
+        stdout = self.call("batch", plan, "--commit", head)[0]
+        results = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual([e["name"] for e in results[0]["result"]["entries"]], ["历史目录"])
+        for data, extra in [
+            ('["mkdir","不得执行"]\n["gc"]\n', []),
+            ('["mkdir","不得执行"]\n', ["--commit", head]),
+        ]:
+            result = subprocess.run([CLI, "batch", str(self.vault), "-", *extra],
+                                    input=data.encode(), capture_output=True,
+                                    start_new_session=True, timeout=10)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, b"")
+            self.assertNotIn("不得执行".encode(), result.stderr)
+        self.assertEqual(len(self.call("list")[0].splitlines()), 2)
+
+    @unittest.skipUnless(sys.platform == "linux", "requires /dev/full")
+    def test_batch_output_failure_stops_after_committed_step(self):
+        self.call("create", confirm=True)
+        plan = self.root / "commands.jsonl"
+        plan.write_text('["mkdir","已提交"]\n["mkdir","不应执行"]\n', encoding="utf-8")
+        with open("/dev/full", "wb", buffering=0) as sink:
+            _, stderr, _ = self.call("batch", plan, expected=1, stdout_sink=sink)
+        self.assertIn("此前完成的操作不会回滚", stderr)
+        self.assertEqual(json.loads(self.call("list")[0])["name"], "已提交")
+
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux pipe capacity queries")
+    def test_batch_cancel_with_unread_stdout_releases_vault_lock(self):
+        self.call("create", confirm=True)
+        plan = self.root / "commands.jsonl"
+        commands = [["mkdir", f"{i:02d}" + "x" * 220] for i in range(32)]
+        plan.write_text("\n".join(json.dumps(c) for c in commands), encoding="utf-8")
+        self.call("batch", plan)
+        plan.write_text('["list"]\n', encoding="utf-8")
+
+        def cancel_blocked_writer(process):
+            capacity = fcntl.fcntl(process.stdout, fcntl.F_SETPIPE_SZ, 4096)
+            end = time.monotonic() + 20
+            while True:
+                unread = int.from_bytes(fcntl.ioctl(process.stdout, termios.FIONREAD, b"\0" * 4),
+                                        sys.byteorder)
+                # The sole list record exceeds this capacity and cannot complete
+                # without a reader, even if an atomic write stalls before 100% full.
+                if unread >= capacity // 2:
+                    break
+                if process.poll() is not None:
+                    error = process.stderr.read() if process.stderr is not None else b"merged output"
+                    raise AssertionError(f"batch exited before output blocked: {process.returncode}, "
+                                         f"unread={unread}, capacity={capacity}, {error!r}")
+                if time.monotonic() > end:
+                    raise AssertionError(f"batch did not fill its unread output pipe: {unread}/{capacity}")
+                time.sleep(0.002)
+            process.send_signal(signal.SIGINT)
+            end = time.monotonic() + 5
+            while process.poll() is None and time.monotonic() < end:
+                time.sleep(0.002)
+            self.assertEqual(process.poll(), 130, "batch must exit before stdout is drained")
+            self.call("mkdir", f"取消后锁已释放{merged}")
+
+        for merged in [False, True]:
+            with self.subTest(merged_stderr=merged):
+                _, stderr, _ = self.call("batch", plan, expected=130, during=cancel_blocked_writer,
+                                          stderr_sink=subprocess.STDOUT if merged else None)
+                if not merged:
+                    self.assertIn("此前完成的操作不会回滚", stderr)
+
     def test_real_signals_process_lock_and_restart_after_abrupt_exit(self):
         self.call("create", confirm=True)
         source = self.root / "large-source"
         with source.open("wb") as file:
             file.truncate(256 * 1024 * 1024)
 
-        def interrupt(process, action):
+        def interrupt(process, action, existing_temporary):
             end = time.monotonic() + 20
             while True:
                 if process.poll() is not None or time.monotonic() > end:
@@ -221,7 +327,7 @@ class CliTests(unittest.TestCase):
                             raise AssertionError("import did not acknowledge SIGSTOP")
                         time.sleep(0.001)
                     # All namespace/size observations are now made while the importer is frozen.
-                    growing = any(path.stat().st_size > 1048576
+                    growing = any(path not in existing_temporary and path.stat().st_size > 1048576
                                   for path in (self.vault / "objects").glob(".tmp-*"))
                     if growing:
                         self.assertFalse(any(not path.name.startswith(".tmp-")
@@ -236,9 +342,15 @@ class CliTests(unittest.TestCase):
                         os.kill(process.pid, signal.SIGCONT)
                 time.sleep(0.002)
 
-        for action, code in [(signal.SIGINT, 130), (signal.SIGKILL, -signal.SIGKILL)]:
-            self.call("import", source, "未提交文件", expected=code,
-                      during=lambda process: interrupt(process, action))
+        plan = self.root / "commands.jsonl"
+        plan.write_text(json.dumps(["import", str(source), "未提交文件"]) + '\n["mkdir","不应执行"]\n',
+                        encoding="utf-8")
+        for action, code, args in [(signal.SIGINT, 130, ("import", source, "未提交文件")),
+                                   (signal.SIGKILL, -signal.SIGKILL, ("import", source, "未提交文件")),
+                                   (signal.SIGINT, 130, ("batch", plan))]:
+            existing_temporary = set((self.vault / "objects").glob(".tmp-*"))
+            self.call(*args, expected=code,
+                      during=lambda process: interrupt(process, action, existing_temporary))
             self.assertEqual(self.call("list")[0], "")
         self.assertTrue(any((self.vault / "objects").glob(".tmp-*")))
         source.write_bytes(b"restart from beginning")
