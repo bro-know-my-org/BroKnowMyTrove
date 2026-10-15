@@ -41,7 +41,7 @@ test -n "$window"
 xdotool getwindowgeometry "$window"
 xdotool windowfocus --sync "$window"
 sleep 0.5
-xdotool key Tab Tab Tab Return
+xdotool key ctrl+q
 for attempt in {1..50}; do
     kill -0 "$app_pid" 2>/dev/null || break
     sleep 0.1

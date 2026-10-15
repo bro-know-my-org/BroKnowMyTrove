@@ -2798,6 +2798,7 @@ name = "vault-gui"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "tempfile",
  "vault-core",
  "zeroize",
 ]
