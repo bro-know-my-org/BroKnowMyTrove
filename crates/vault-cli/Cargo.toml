@@ -1,0 +1,17 @@
+[package]
+name = "vault-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "bkm"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+vault-core.workspace = true
+
+[lints]
+workspace = true
