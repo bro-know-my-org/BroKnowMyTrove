@@ -500,3 +500,120 @@ fn language_switch_renders_existing_job_results_and_keeps_vault_names() {
     assert!(app.form.phrase.is_empty());
     login_frame(&ctx, &mut app, vec![]);
 }
+
+#[test]
+#[ignore = "opt-in release GUI CPU frame benchmark, requires disposable M6 fixture"]
+fn m6_browser_frame_baseline() {
+    let path = std::env::var_os("BKM_GUI_BENCH_VAULT").expect("expected M6 metadata fixture path");
+    let password = Password::new("disposable metadata benchmark 中文".into()).unwrap();
+    let vault = Vault::open(
+        Path::new(&path),
+        Credential::Password(&password),
+        OpenMode::ReadOnly,
+    )
+    .unwrap();
+    let count = vault.entries().count();
+    let mut app = VaultApp {
+        session: Some(Session {
+            vault,
+            recovery: None,
+        }),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut fonts = egui::FontDefinitions::default();
+    let mut cjk = egui::FontData::from_static(include_bytes!(
+        "../../../assets/fonts/NotoSansCJK-Regular.ttc"
+    ));
+    cjk.index = 2;
+    fonts
+        .font_data
+        .insert("noto-cjk".into(), std::sync::Arc::new(cjk));
+    for family in fonts.families.values_mut() {
+        family.push("noto-cjk".into());
+    }
+    fonts.font_data.insert(
+        "serif-ui".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../../assets/fonts/NotoSerifUI.otf"
+        ))),
+    );
+    fonts.families.insert(
+        egui::FontFamily::Name("serif".into()),
+        vec!["serif-ui".into(), "noto-cjk".into()],
+    );
+    ctx.set_fonts(fonts);
+    for query in ["", "café"] {
+        app.browser.query = Zeroizing::new(query.into());
+        let mut times = Vec::new();
+        for _ in 0..12 {
+            let started = Instant::now();
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1080.0, 700.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    let _ = app.browse(ui);
+                },
+            );
+            std::hint::black_box(output);
+            times.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        let first = times[0];
+        times.drain(..2); // Font/shape warmup is recorded separately, not hidden in steady state.
+        times.sort_by(f64::total_cmp);
+        let p95 = times[(times.len() * 95).div_ceil(100) - 1];
+        println!(
+            "{}",
+            serde_json::json!({"benchmark":"gui_cpu_frame", "entries":count,
+            "search": !query.is_empty(), "first_frame_ms":first, "samples":times.len(),
+            "p50_ms":times[(times.len()-1)/2], "p95_ms":p95, "release":!cfg!(debug_assertions),
+            "scope":"headless egui browse CPU, CJK font, no GPU/compositor/input latency"})
+        );
+        if let Ok(budget) = std::env::var("BKM_GUI_FRAME_BUDGET_MS") {
+            assert!(
+                p95 < budget.parse::<f64>().unwrap(),
+                "steady CPU frame exceeds local diagnostic budget"
+            );
+        }
+    }
+}
+
+#[test]
+fn browser_listing_tracks_query_navigation_commits_trash_and_lock() {
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = VaultApp::default();
+    create(&mut app, &temp.path().join("vault"), &ctx);
+    wait(&mut app, &ctx);
+    let vault = &mut app.session.as_mut().unwrap().vault;
+    let op = Operation::default();
+    let root = vault.mkdir(None, "root", &op).unwrap();
+    let child = vault.mkdir(Some(root), "café", &op).unwrap();
+    assert_eq!(app.browser.entries(vault).len(), 1);
+    assert_eq!(app.browser.entries(vault)[0].id, root);
+    app.browser.parent = Some(root);
+    assert_eq!(app.browser.entries(vault).len(), 1);
+    assert_eq!(app.browser.entries(vault)[0].id, child);
+    app.browser.parent = None;
+    app.browser.query = Zeroizing::new("CAFE\u{301}".into());
+    assert_eq!(app.browser.entries(vault)[0].id, child);
+    vault.rename(child, "renamed", &op).unwrap();
+    assert!(app.browser.entries(vault).is_empty());
+    app.browser.query.clear();
+    vault.trash_entry(root, &op).unwrap();
+    assert!(app.browser.entries(vault).is_empty());
+    app.browser.trash = true;
+    assert_eq!(app.browser.entries(vault).len(), 2);
+    vault.restore_entry(root, &op).unwrap();
+    assert!(app.browser.entries(vault).is_empty());
+    app.browser.query = Zeroizing::new("clear cached query on lock".into());
+    assert!(app.browser.entries(vault).is_empty());
+    app.lock(&ctx);
+    assert!(app.browser.cached.is_none() && app.browser.query.is_empty());
+}

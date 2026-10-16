@@ -127,6 +127,59 @@ struct Browser {
     parent: Option<Id>,
     trash: bool,
     selected: Option<Id>,
+    cached: Option<Listing>,
+}
+
+struct Listing {
+    state: (Option<Id>, Option<Id>, bool),
+    query: Zeroizing<String>,
+    rows: Vec<usize>,
+}
+
+impl Browser {
+    fn entries<'a>(&mut self, vault: &'a vault_core::Vault) -> Vec<&'a vault_core::Entry> {
+        let entries: Vec<_> = vault.entries().collect();
+        let state = (vault.current_commit(), self.parent, self.trash);
+        if self
+            .cached
+            .as_ref()
+            .is_none_or(|cache| cache.state != state || cache.query.as_str() != self.query.as_str())
+        {
+            let rows = if self.query.is_empty() {
+                entries
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, entry)| {
+                        (entry.is_trashed() == self.trash
+                            && (self.trash || entry.parent == self.parent))
+                            .then_some(index)
+                    })
+                    .collect()
+            } else {
+                let indices: std::collections::HashMap<_, _> = entries
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| (entry.id, index))
+                    .collect();
+                vault
+                    .search(&self.query, self.trash)
+                    .map(|entry| indices[&entry.id])
+                    .collect()
+            };
+            self.cached = Some(Listing {
+                state,
+                query: Zeroizing::new(self.query.to_string()),
+                rows,
+            });
+        }
+        self.cached
+            .as_ref()
+            .unwrap()
+            .rows
+            .iter()
+            .map(|&index| entries[index])
+            .collect()
+    }
 }
 
 #[derive(Default)]
@@ -191,6 +244,7 @@ impl VaultApp {
                 self.notice = TextKey::StoppedLocked.into();
             } else {
                 self.session = result.session;
+                self.browser.cached = None;
                 match result.result {
                     Ok(message) => {
                         if self.form.restore
@@ -574,15 +628,7 @@ impl VaultApp {
                         .desired_width(f32::INFINITY)
                         .margin(egui::Margin::symmetric(8, 5)),
                 );
-                let entries: Vec<_> = session
-                    .vault
-                    .search(&self.browser.query, self.browser.trash)
-                    .filter(|entry| {
-                        self.browser.trash
-                            || !self.browser.query.is_empty()
-                            || entry.parent == self.browser.parent
-                    })
-                    .collect();
+                let entries = self.browser.entries(&session.vault);
                 theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
                 if entries.is_empty() {

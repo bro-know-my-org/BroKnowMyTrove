@@ -2834,6 +2834,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "rfd",
+ "serde_json",
  "tempfile",
  "vault-core",
  "vault-i18n",
