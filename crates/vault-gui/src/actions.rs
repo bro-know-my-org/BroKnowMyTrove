@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use vault_core::{Id, Result, Vault, operation::Operation};
+use vault_core::{BackupVerification, Id, Result, Vault, operation::Operation};
 use vault_i18n::{Message, TextKey};
 use zeroize::Zeroizing;
 
@@ -16,6 +16,7 @@ pub enum Action {
     Collect,
     Check,
     Space,
+    Backup(PathBuf, BackupVerification),
 }
 
 impl Action {
@@ -56,6 +57,13 @@ impl Action {
             Self::Space => {
                 let report = vault.storage_usage()?;
                 return Ok(Message::Space(report));
+            }
+            Self::Backup(destination, verification) => {
+                return Ok(Message::Backup(vault.backup_to(
+                    &destination,
+                    verification,
+                    operation,
+                )?));
             }
         }
         Ok(TextKey::Done.into())

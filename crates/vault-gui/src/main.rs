@@ -1,7 +1,7 @@
 use eframe::egui;
 use std::time::{Duration, Instant};
 use vault_core::{
-    CreateOptions, EntryKind, Error, Id, OpenMode, Result,
+    BackupVerification, CreateOptions, EntryKind, Error, Id, OpenMode, Result,
     crypto::{Password, RecoveryKey},
 };
 use vault_i18n::{Locale, TextKey};
@@ -66,6 +66,9 @@ struct Form {
     recovery: bool,
     show_password: bool,
     read_only: bool,
+    restore: bool,
+    destination: PathInput,
+    copy_only: bool,
 }
 
 impl Form {
@@ -78,11 +81,29 @@ impl Form {
         let mut phrase = std::mem::take(&mut self.phrase);
         let mut confirmation = std::mem::take(&mut self.confirmation);
         self.show_password = false;
+        let verification = if self.copy_only {
+            BackupVerification::Copy
+        } else {
+            BackupVerification::Full
+        };
         if !self.create && self.recovery {
+            if self.restore {
+                return Ok(Request::RestoreRecovery(
+                    RecoveryKey::decode(&phrase)?,
+                    self.destination.path(),
+                    verification,
+                ));
+            }
             return Ok(Request::Recover(RecoveryKey::decode(&phrase)?, mode));
         }
         let password = Password::new(std::mem::take(&mut *phrase))?;
-        if self.create {
+        if self.restore {
+            Ok(Request::RestorePassword(
+                password,
+                self.destination.path(),
+                verification,
+            ))
+        } else if self.create {
             if !password.matches(&Password::new(std::mem::take(&mut *confirmation))?) {
                 return Err(Error::InvalidInput);
             }
@@ -135,6 +156,7 @@ impl VaultApp {
         self.form.phrase = Zeroizing::default();
         self.form.confirmation = Zeroizing::default();
         self.form.show_password = false;
+        self.form.destination = PathInput::default();
         // Also drop widget editing/undo state. No eframe persistence is enabled.
         theme::clear_widget_memory(ctx);
     }
@@ -170,6 +192,12 @@ impl VaultApp {
                 self.session = result.session;
                 match result.result {
                     Ok(message) => {
+                        if self.form.restore
+                            && matches!(&message, Message::Backup(report) if report.publication_failure.is_none())
+                        {
+                            self.form.path.set(self.form.destination.path());
+                            self.form.restore = false;
+                        }
                         self.form.create = false;
                         self.form.recovery = false;
                         self.notice = message;
@@ -227,8 +255,9 @@ impl VaultApp {
                         egui::Button::selectable(self.form.create == create, label),
                     )
                     .clicked()
-                    && self.form.create != create
+                    && (self.form.create != create || self.form.restore)
                 {
+                    self.form.restore = false;
                     self.form.create = create;
                     self.form.recovery = false;
                     self.form.phrase = Zeroizing::default();
@@ -237,16 +266,30 @@ impl VaultApp {
                     theme::clear_widget_memory(ui.ctx());
                 }
             }
+            if ui
+                .selectable_label(self.form.restore, locale.text(TextKey::RestoreVault))
+                .clicked()
+            {
+                self.form.restore = true;
+                self.form.create = false;
+                self.form.phrase = Zeroizing::default();
+                self.form.confirmation = Zeroizing::default();
+                theme::clear_widget_memory(ui.ctx());
+            }
         });
         ui.add_space(8.0);
-        ui.heading(if self.form.create {
+        ui.heading(if self.form.restore {
+            locale.text(TextKey::RestoreVault)
+        } else if self.form.create {
             locale.text(TextKey::CreateVault)
         } else {
             locale.text(TextKey::UnlockVault)
         });
         theme::caption(
             ui,
-            if self.form.create {
+            if self.form.restore {
+                locale.text(TextKey::RestoreHint)
+            } else if self.form.create {
                 locale.text(TextKey::CreateHint)
             } else {
                 locale.text(TextKey::UnlockHint)
@@ -270,6 +313,12 @@ impl VaultApp {
         });
         if self.form.create {
             theme::caption(ui, locale.text(TextKey::DirectoryHint));
+        }
+        if self.form.restore {
+            ui.label(locale.text(TextKey::BackupTarget));
+            self.form.destination.ui(ui, locale);
+            ui.checkbox(&mut self.form.copy_only, locale.text(TextKey::CopyOnly));
+            theme::caption(ui, locale.text(TextKey::BackupTargetHint));
         }
         ui.label(if !self.form.create && self.form.recovery {
             locale.text(TextKey::RecoveryKey)
@@ -318,8 +367,11 @@ impl VaultApp {
         ui.add_space(8.0);
         if ui
             .add_enabled(
-                !self.form.path.is_empty(),
-                theme::primary(if self.form.create {
+                !self.form.path.is_empty()
+                    && (!self.form.restore || !self.form.destination.is_empty()),
+                theme::primary(if self.form.restore {
+                    locale.text(TextKey::RestoreVault)
+                } else if self.form.create {
                     locale.text(TextKey::CreateVault)
                 } else {
                     locale.text(TextKey::UnlockVault)

@@ -11,6 +11,8 @@ pub struct Editor {
     pub path: PathInput,
     parent: Option<Id>,
     confirmation: Option<Action>,
+    backup_path: PathInput,
+    copy_only: bool,
 }
 
 impl Editor {
@@ -199,6 +201,28 @@ impl Editor {
                         action = Some(Action::Collect);
                     }
                 });
+            });
+        egui::CollapsingHeader::new(locale.text(TextKey::BackupVault))
+            .id_salt("backup")
+            .show(ui, |ui| {
+                ui.label(locale.text(TextKey::BackupTarget));
+                self.backup_path.ui(ui, locale);
+                crate::theme::caption(ui, locale.text(TextKey::BackupTargetHint));
+                ui.checkbox(&mut self.copy_only, locale.text(TextKey::CopyOnly));
+                if clicked(
+                    ui,
+                    locale.text(TextKey::BackupVault),
+                    !self.backup_path.is_empty(),
+                ) {
+                    action = Some(Action::Backup(
+                        self.backup_path.path(),
+                        if self.copy_only {
+                            vault_core::BackupVerification::Copy
+                        } else {
+                            vault_core::BackupVerification::Full
+                        },
+                    ));
+                }
             });
         if action.as_ref().is_some_and(Action::needs_confirmation) {
             self.confirmation = action;

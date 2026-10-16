@@ -37,6 +37,7 @@ pub enum Message {
     Cleanup(CleanupReport),
     Content(ContentSummary),
     Space(StorageUsage),
+    Backup(BackupReport),
 }
 
 // Both format strings are checked by Rust, including argument types and count.
@@ -86,6 +87,7 @@ impl Message {
             Self::Cleanup(report) => locale.cleanup(report),
             Self::Content(report) => locale.content_summary(report),
             Self::Space(report) => locale.storage(report),
+            Self::Backup(report) => locale.backup(report),
         }
     }
 }

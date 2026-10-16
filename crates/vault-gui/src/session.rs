@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 use vault_core::{
-    CreateOptions, Credential, Error, OpenMode, Result, Vault,
+    BackupVerification, CreateOptions, Credential, Error, OpenMode, Result, Vault,
     crypto::{Password, RecoveryKey},
     operation::{Operation, Progress},
 };
@@ -17,6 +17,8 @@ pub enum Request {
     Create(Password, CreateOptions),
     Open(Password, OpenMode),
     Recover(RecoveryKey, OpenMode),
+    RestorePassword(Password, PathBuf, BackupVerification),
+    RestoreRecovery(RecoveryKey, PathBuf, BackupVerification),
 }
 
 pub struct Session {
@@ -25,23 +27,56 @@ pub struct Session {
 }
 
 impl Request {
-    fn run(self, path: PathBuf, operation: &Operation) -> Result<Session> {
+    fn run(self, path: PathBuf, operation: &Operation) -> Result<Completion> {
         operation.check_cancelled()?;
         let (vault, recovery) = match self {
             Self::Create(password, options) => {
                 Vault::create_with_operation(&path, &password, options, operation)?
             }
             Self::Open(password, mode) => (
-                Vault::open(&path, Credential::Password(&password), mode)?,
+                Vault::open_with_operation(
+                    &path,
+                    Credential::Password(&password),
+                    mode,
+                    operation,
+                )?,
                 None,
             ),
-            Self::Recover(key, mode) => {
-                (Vault::open(&path, Credential::Recovery(&key), mode)?, None)
+            Self::Recover(key, mode) => (
+                Vault::open_with_operation(&path, Credential::Recovery(&key), mode, operation)?,
+                None,
+            ),
+            Self::RestorePassword(password, destination, verification) => {
+                return Ok(Completion {
+                    session: None,
+                    result: Ok(Message::Backup(Vault::restore_to(
+                        &path,
+                        Credential::Password(&password),
+                        &destination,
+                        verification,
+                        operation,
+                    )?)),
+                });
+            }
+            Self::RestoreRecovery(key, destination, verification) => {
+                return Ok(Completion {
+                    session: None,
+                    result: Ok(Message::Backup(Vault::restore_to(
+                        &path,
+                        Credential::Recovery(&key),
+                        &destination,
+                        verification,
+                        operation,
+                    )?)),
+                });
             }
         };
-        Ok(Session {
-            vault,
-            recovery: recovery.map(|key| key.encode()).transpose()?,
+        Ok(Completion {
+            session: Some(Session {
+                vault,
+                recovery: recovery.map(|key| key.encode()).transpose()?,
+            }),
+            result: Ok(Message::Empty),
         })
     }
 }
@@ -62,10 +97,7 @@ pub struct Task {
 impl Task {
     pub fn start(path: PathBuf, request: Request, ctx: egui::Context) -> Result<Self> {
         Self::spawn(ctx, move |operation| match request.run(path, operation) {
-            Ok(session) => Completion {
-                session: Some(session),
-                result: Ok(Message::Empty),
-            },
+            Ok(completion) => completion,
             Err(error) => Completion {
                 session: None,
                 result: Err(error),

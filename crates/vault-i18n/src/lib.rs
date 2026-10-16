@@ -166,6 +166,12 @@ texts! {
     MoveTo: "移动到目录", "Move to folder";
     MoveToTrash: "移入回收站", "Move to trash";
     Restore: "恢复所选", "Restore selected";
+    BackupVault: "备份保险库", "Back up vault";
+    RestoreVault: "整库恢复", "Restore vault";
+    RestoreHint: "选择密文备份，恢复到尚不存在的新目录；不会覆盖原库。", "Choose a ciphertext backup and restore to a new directory; existing vaults are never overwritten.";
+    CopyOnly: "仅校验复制（不认证文件内容）", "Verify copy only (contents not authenticated)";
+    BackupTarget: "新目录路径", "New directory path";
+    BackupTargetHint: "父目录必须存在；含回收站，不含历史恢复快照。", "Parent must exist. Includes trash, excludes historical recovery snapshots.";
     Maintenance: "保险库维护", "Vault maintenance";
     CheckContent: "完整内容检查", "Verify all contents";
     Space: "空间统计", "Storage usage";

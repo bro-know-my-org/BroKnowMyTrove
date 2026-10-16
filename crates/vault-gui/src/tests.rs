@@ -140,6 +140,79 @@ fn gui_confirmation_uses_shared_nfc_rules_and_clears_secrets_on_error() {
     assert!(form.phrase.is_empty());
 }
 
+#[test]
+fn gui_backup_and_restore_without_original_keeps_recovery_locked() {
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let backup = temp.path().join("backup");
+    let restored = temp.path().join("restored");
+    let mut app = VaultApp::default();
+    create(&mut app, &source, &ctx);
+    wait(&mut app, &ctx);
+    let recovery =
+        RecoveryKey::decode(app.session.as_ref().unwrap().recovery.as_ref().unwrap()).unwrap();
+    act(
+        &mut app,
+        &ctx,
+        Action::Mkdir(None, Zeroizing::new("恢复目录".into())),
+    );
+    let notice = act(
+        &mut app,
+        &ctx,
+        Action::Backup(backup.clone(), BackupVerification::Full),
+    );
+    assert!(notice.contains("完整内容认证"));
+    assert!(app.session.as_ref().unwrap().vault.is_writable());
+    app.lock(&ctx);
+    std::fs::remove_dir_all(source).unwrap();
+    app.form.restore = true;
+    app.form.destination.set(restored.clone());
+    app.task = Some(
+        Task::start(
+            backup,
+            Request::RestoreRecovery(recovery, restored.clone(), BackupVerification::Full),
+            ctx.clone(),
+        )
+        .unwrap(),
+    );
+    wait(&mut app, &ctx);
+    assert!(
+        app.session.is_none(),
+        "restore must not silently unlock a vault"
+    );
+    assert!(!app.form.restore);
+    assert_eq!(app.form.path.path(), restored);
+    assert!(app.form.destination.is_empty());
+    assert!(matches!(app.notice, Message::Backup(_)));
+    let vault = Vault::open(
+        &restored,
+        Credential::Password(&Password::new("中文café".into()).unwrap()),
+        OpenMode::ReadWrite,
+    )
+    .unwrap();
+    assert_eq!(vault.search("恢复目录", false).count(), 1);
+}
+
+#[test]
+fn gui_restore_form_clears_credential_and_defaults_to_full() {
+    let mut form = Form {
+        restore: true,
+        phrase: Zeroizing::new("测试口令".into()),
+        ..Default::default()
+    };
+    form.destination.set("new-directory".into());
+    assert!(matches!(
+        form.request(),
+        Ok(Request::RestorePassword(_, _, BackupVerification::Full))
+    ));
+    assert!(form.phrase.is_empty());
+    form.recovery = true;
+    form.phrase = Zeroizing::new("invalid recovery".into());
+    assert!(form.request().is_err());
+    assert!(form.phrase.is_empty());
+}
+
 fn act(app: &mut VaultApp, ctx: &egui::Context, action: Action) -> String {
     app.start_action(action, ctx);
     wait(app, ctx);
