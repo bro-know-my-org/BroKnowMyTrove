@@ -314,3 +314,159 @@ fn interrupted_uncommitted_import_restarts_with_fresh_object_and_midstream_cance
             .is_empty()
     );
 }
+
+#[test]
+fn sync_arrivals_never_turn_missing_data_into_deletions_and_reopen_after_completion() {
+    for missing_parent in [false, true] {
+        let (temp, mut vault, password) = fixture();
+        let op = Operation::default();
+        let parent = vault.current_commit().unwrap();
+        let source = temp.path().join("source");
+        fs::write(&source, b"arrives later").unwrap();
+        let id = vault.import_file(None, "保留名称", &source, &op).unwrap();
+        let current = vault.current_commit().unwrap();
+        let EntryKind::File { object, .. } = vault.entry(id).unwrap().kind else {
+            panic!()
+        };
+        let delayed = if missing_parent {
+            vault.store.path(Kind::Commit, parent)
+        } else {
+            vault.store.path(Kind::Object, object)
+        };
+        let bytes = fs::read(&delayed).unwrap();
+        drop(vault);
+        fs::remove_file(&delayed).unwrap();
+        let path = temp.path().join("vault");
+        assert!(Vault::open(&path, Credential::Password(&password), OpenMode::ReadWrite).is_err());
+        let mut recovery = Vault::open(
+            &path,
+            Credential::Password(&password),
+            OpenMode::Recovery(current),
+        )
+        .unwrap();
+        assert_eq!(recovery.entry(id).unwrap().name, "保留名称");
+        assert!(recovery.issues().iter().any(|issue| if missing_parent {
+            matches!(issue, Issue::InvalidCommitGraph)
+        } else {
+            matches!(issue, Issue::MissingObject(found) if *found == object)
+        }));
+        assert!(matches!(
+            recovery.trash_entry(id, &op),
+            Err(Error::ReadOnly)
+        ));
+        fs::write(&delayed, bytes).unwrap();
+        assert!(
+            !recovery.is_writable(),
+            "arrival cannot upgrade an existing recovery session"
+        );
+        assert!(matches!(
+            recovery.mkdir(None, "still read only", &op),
+            Err(Error::ReadOnly)
+        ));
+        drop(recovery);
+        let mut vault =
+            Vault::open(&path, Credential::Password(&password), OpenMode::ReadWrite).unwrap();
+        assert_eq!(vault.current_commit(), Some(current));
+        assert_eq!(vault.entry(id).unwrap().name, "保留名称");
+        assert!(vault.verify_content(&op).unwrap().failed_objects.is_empty());
+        vault.mkdir(None, "完整到达后可写", &op).unwrap();
+    }
+}
+
+#[test]
+fn sync_conflict_copies_in_each_directory_require_explicit_resolution() {
+    for directory in ["objects", "snapshots", "commits"] {
+        let (temp, vault, password) = fixture();
+        let head = vault.current_commit().unwrap();
+        let conflict = vault
+            .store
+            .root
+            .join(directory)
+            .join("00000000000000000000000000000001 (conflicted copy)");
+        fs::write(&conflict, b"never select automatically").unwrap();
+        drop(vault);
+        let path = temp.path().join("vault");
+        let report = Vault::inspect(&path, Credential::Password(&password)).unwrap();
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| matches!(issue, Issue::UnexpectedPhysicalEntry))
+        );
+        assert!(report.head.is_none());
+        assert!(Vault::open(&path, Credential::Password(&password), OpenMode::ReadWrite).is_err());
+        let mut vault = Vault::open(
+            &path,
+            Credential::Password(&password),
+            OpenMode::Recovery(head),
+        )
+        .unwrap();
+        assert!(matches!(
+            vault.collect_garbage(&Operation::default()),
+            Err(Error::ReadOnly)
+        ));
+        assert!(
+            conflict.exists(),
+            "inspection must preserve conflict evidence"
+        );
+        drop(vault);
+        fs::remove_file(conflict).unwrap();
+        assert!(Vault::open(&path, Credential::Password(&password), OpenMode::ReadWrite).is_ok());
+    }
+}
+
+#[test]
+fn loss_of_all_snapshots_never_fabricates_an_empty_vault_or_deletes_objects() {
+    let (temp, mut vault, password) = fixture();
+    let source = temp.path().join("source");
+    fs::write(&source, b"object survives without its name").unwrap();
+    let id = vault
+        .import_file(None, "lost metadata", &source, &Operation::default())
+        .unwrap();
+    let EntryKind::File { object, .. } = vault.entry(id).unwrap().kind else {
+        panic!()
+    };
+    let object_path = vault.store.path(Kind::Object, object);
+    let head = vault.current_commit().unwrap();
+    let ciphertext = fs::read(&object_path).unwrap();
+    for snapshot in vault.store.inventory(Kind::Snapshot).unwrap().ids {
+        fs::remove_file(vault.store.path(Kind::Snapshot, snapshot)).unwrap();
+    }
+    drop(vault);
+    let path = temp.path().join("vault");
+    let report = Vault::inspect(&path, Credential::Password(&password)).unwrap();
+    assert!(report.head.is_none());
+    assert!(
+        report
+            .commits
+            .iter()
+            .any(|commit| commit.id == head && !commit.snapshot_present)
+    );
+    assert!(
+        Vault::open(
+            &path,
+            Credential::Password(&password),
+            OpenMode::Recovery(head)
+        )
+        .is_err()
+    );
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| matches!(issue, Issue::MissingSnapshot(_)))
+    );
+    for commit in &report.commits {
+        assert!(!commit.snapshot_present);
+        assert!(
+            Vault::open(
+                &path,
+                Credential::Password(&password),
+                OpenMode::Recovery(commit.id)
+            )
+            .is_err()
+        );
+    }
+    assert!(Vault::open(&path, Credential::Password(&password), OpenMode::ReadWrite).is_err());
+    assert_eq!(fs::read(object_path).unwrap(), ciphertext);
+}
