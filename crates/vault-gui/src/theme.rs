@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Stroke};
+use eframe::egui::{self, Color32, RichText, Stroke};
 
 pub const INK: Color32 = Color32::from_gray(242);
 pub const MUTED: Color32 = Color32::from_rgba_premultiplied(179, 179, 179, 179);
@@ -76,6 +76,41 @@ pub fn install(ctx: &egui::Context) {
     visuals.widgets.hovered.fg_stroke.color = ACCENT;
     visuals.widgets.active.fg_stroke.color = ACCENT;
     ctx.set_style_of(egui::Theme::Dark, style);
+}
+
+pub fn card() -> egui::Frame {
+    egui::Frame::new().fill(BACKGROUND).inner_margin(20)
+}
+
+pub fn primary(label: &str) -> egui::Button<'_> {
+    egui::Button::new(RichText::new(label).color(INK)).fill(SURFACE)
+}
+
+pub fn caption(ui: &mut egui::Ui, text: &str) {
+    ui.label(RichText::new(text).size(12.0).color(MUTED));
+}
+
+pub fn brand(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new("BroKnowMyTrove")
+            .font(egui::FontId::new(
+                18.0,
+                egui::FontFamily::Name("serif".into()),
+            ))
+            .color(INK),
+    );
+}
+
+pub fn size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
 }
 
 #[cfg(test)]

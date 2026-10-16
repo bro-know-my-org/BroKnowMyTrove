@@ -229,3 +229,69 @@ fn gui_file_jobs_roundtrip_preserve_source_and_session_on_failure() {
     );
     assert_eq!(app.session.as_ref().unwrap().vault.entries().count(), 1);
 }
+
+fn login_frame(ctx: &egui::Context, app: &mut VaultApp, events: Vec<egui::Event>) {
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            egui::CentralPanel::default().show(ui, |ui| app.login(ui));
+        },
+    );
+    output.textures_delta.clear(); // This headless UI check does not upload textures.
+}
+
+fn click_login_tab(ctx: &egui::Context, app: &mut VaultApp, x: f32) {
+    let pos = egui::pos2(x, 20.0);
+    for pressed in [true, false] {
+        login_frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+}
+
+#[test]
+fn login_tabs_only_clear_sensitive_input_when_switching_modes() {
+    let ctx = egui::Context::default();
+    let mut app = VaultApp::default();
+    app.form.create = true;
+    app.form.phrase = Zeroizing::new("test password".into());
+    app.form.confirmation = Zeroizing::new("test confirmation".into());
+    app.form.recovery = true;
+    app.form.show_password = true;
+    login_frame(&ctx, &mut app, vec![]);
+    let editing_state = egui::Id::new("editing-state");
+    ctx.data_mut(|data| data.insert_temp(editing_state, 42_u32));
+
+    click_login_tab(&ctx, &mut app, 180.0);
+    assert!(app.form.create);
+    assert_eq!(app.form.phrase.as_str(), "test password");
+    assert_eq!(app.form.confirmation.as_str(), "test confirmation");
+    assert!(app.form.recovery && app.form.show_password);
+    assert_eq!(
+        ctx.data(|data| data.get_temp::<u32>(editing_state)),
+        Some(42)
+    );
+
+    click_login_tab(&ctx, &mut app, 50.0);
+    assert!(!app.form.create);
+    assert!(app.form.phrase.is_empty() && app.form.confirmation.is_empty());
+    assert!(!app.form.recovery && !app.form.show_password);
+    assert_eq!(ctx.data(|data| data.get_temp::<u32>(editing_state)), None);
+}
