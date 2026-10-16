@@ -20,7 +20,8 @@ PASSWORD = "中文端到端café"
 
 
 def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expected=0, during=None,
-            stdout_sink=None, disconnect_terminal=False, stdin_source=None, stderr_sink=None):
+            stdout_sink=None, disconnect_terminal=False, stdin_source=None, stderr_sink=None,
+            language="zh-CN"):
     master, slave = pty.openpty()
     before = termios.tcgetattr(slave)
     transcript = b""
@@ -35,7 +36,7 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
     process = subprocess.Popen(
-        [CLI, *map(str, args)], stdin=stdin_source if stdin_source is not None else subprocess.DEVNULL,
+        [CLI, "--lang", language, *map(str, args)], stdin=stdin_source if stdin_source is not None else subprocess.DEVNULL,
         stdout=stdout_sink if stdout_sink is not None else subprocess.PIPE,
         stderr=stderr_sink if stderr_sink is not None else subprocess.PIPE, env=env,
         pass_fds=(slave,), preexec_fn=attach,
@@ -51,10 +52,14 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
                 transcript += os.read(master, 65536)
 
     try:
-        wait("恢复密钥: " if "--recovery-key" in args else "密码: ")
+        recovery_prompt, password_prompt, confirmation_prompt = (
+            ("Recovery key: ", "Password: ", "Repeat password: ") if language == "en-US"
+            else ("恢复密钥: ", "密码: ", "再次输入密码: ")
+        )
+        wait(recovery_prompt if "--recovery-key" in args else password_prompt)
         os.write(master, (credential + "\r").encode())
         if confirm:
-            wait("再次输入密码: ")
+            wait(confirmation_prompt)
             os.write(master, (PASSWORD + "\r").encode())
         if disconnect_terminal:
             wait("\x1b[?2004l")
@@ -102,6 +107,31 @@ class CliTests(unittest.TestCase):
     def call(self, command, *args, **kwargs):
         return run_cli([command, self.vault, *args], **kwargs)
 
+    def test_languages_localize_terminal_and_reports_without_changing_json(self):
+        stdout, stderr, terminal = self.call("create", "--recovery", confirm=True, language="en-US")
+        self.assertEqual(stdout.strip(), "Vault created")
+        self.assertEqual(stderr, "")
+        self.assertIn("Recovery key (save separately): ", terminal)
+        recovery = re.search(r"[0-9a-f]{64}-[0-9a-f]{8}", terminal).group()
+        self.assertNotIn(recovery, stdout + stderr)
+        self.call("mkdir", "中文文件夹", language="en-US")
+        chinese = self.call("list", "--json")[0]
+        english = self.call("list", "--json", "--recovery-key", credential=recovery, language="en-US")[0]
+        self.assertEqual(json.loads(chinese), json.loads(english))
+        self.assertEqual(json.loads(english)["entries"][0]["name"], "中文文件夹")
+        self.assertIn("Content verification", self.call("check", language="en-US")[0])
+        inspection = self.call("inspect", language="en-US")[0]
+        self.assertIn("Head commit", inspection)
+        self.assertIn("Snapshot present: yes", inspection)
+        self.assertIn("快照存在: 是", self.call("inspect")[0])
+        self.assertIn("authentication failed", self.call("list", credential="incorrect-test-credential", expected=1, language="en-US")[1])
+        self.assertIn("认证失败", self.call("list", credential="incorrect-test-credential", expected=1)[1])
+        plan = self.root / "failed-plan.jsonl"
+        plan.write_text(json.dumps(["rename", "0" * 32, "missing"]), encoding="utf-8")
+        chinese = self.call("batch", plan, expected=1)[0]
+        english = self.call("batch", plan, expected=1, language="en-US")[0]
+        self.assertEqual(json.loads(chinese), json.loads(english))
+
     def test_cross_process_unicode_recovery_and_file_lifecycle(self):
         stdout, stderr, terminal = self.call(
             "create", "--recovery", confirm=True, locale="C",
@@ -135,7 +165,7 @@ class CliTests(unittest.TestCase):
         self.call("restore", file_id)
         self.call("check")
         self.call("trash", file_id)
-        self.assertIn("trash_object_bytes", self.call("space")[0])
+        self.assertGreater(json.loads(self.call("space", "--json")[0])["trash_object_bytes"], 0)
         self.call("empty-trash", "--confirm")
         self.call("gc", "--confirm")
         self.assertEqual(len(list((self.vault / "objects").iterdir())), 0)
@@ -147,19 +177,19 @@ class CliTests(unittest.TestCase):
         source.write_bytes(b"intact historic version")
         file_id = self.call("import", source, "保留资料")[0].strip()
         before = set((self.vault / "commits").iterdir())
-        report = self.call("inspect")[0]
-        head = re.search(r"head: Some\(\s*([0-9a-f]{32})", report).group(1)
+        head = json.loads(self.call("inspect", "--json")[0])["head"]
         self.call("rename", file_id, "新名称")
         newest = (set((self.vault / "commits").iterdir()) - before).pop()
         newest.write_bytes(b"damaged new commit")
         self.call("list", expected=1)
-        self.assertIn("DamagedCommit", self.call("inspect", expected=1)[0])
+        issues = json.loads(self.call("inspect", "--json", expected=1)[0])["issues"]
+        self.assertIn("damaged_commit", {issue["kind"] for issue in issues})
         target = self.root / "recovered"
         self.call("export", file_id, target, "--commit", head)
         self.assertEqual(target.read_bytes(), source.read_bytes())
         stdout, stderr, _ = self.call("list", credential="错误密码", expected=1)
         self.assertEqual(stdout, "")
-        self.assertIn("authentication failed", stderr)
+        self.assertIn("认证失败", stderr)
         self.assertNotIn("保留资料", stderr)
 
     def test_json_results_and_failed_content_report(self):
@@ -334,7 +364,7 @@ class CliTests(unittest.TestCase):
                                              for path in (self.vault / "objects").iterdir()))
                         if action == signal.SIGINT:
                             _, stderr, _ = self.call("mkdir", "并发拒绝", expected=1)
-                            self.assertIn("another local process", stderr)
+                            self.assertIn("另一个本地进程", stderr)
                         os.kill(process.pid, action)
                         return
                 finally:

@@ -2,6 +2,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{IsTerminal, Write},
 };
+use vault_i18n::{Locale, TextKey};
 
 use crossterm::{
     cursor::MoveToColumn,
@@ -21,10 +22,22 @@ use zeroize::{Zeroize, Zeroizing};
 
 /// Input always uses a controlling terminal; stdin remains available for file data.
 pub fn read_password(confirm: bool) -> Result<Password> {
+    read_password_in(confirm, Locale::default())
+}
+
+pub fn read_password_in(confirm: bool, locale: Locale) -> Result<Password> {
     let mut terminal = Terminal::open()?;
-    let first = Password::new(terminal.read("密码: ")?.to_string())?;
+    let first = Password::new(
+        terminal
+            .read(locale.text(TextKey::PasswordPrompt))?
+            .to_string(),
+    )?;
     if confirm {
-        let second = Password::new(terminal.read("再次输入密码: ")?.to_string())?;
+        let second = Password::new(
+            terminal
+                .read(locale.text(TextKey::ConfirmPasswordPrompt))?
+                .to_string(),
+        )?;
         if !first.matches(&second) {
             return Err(Error::InvalidInput);
         }
@@ -33,16 +46,25 @@ pub fn read_password(confirm: bool) -> Result<Password> {
 }
 
 pub fn read_recovery() -> Result<RecoveryKey> {
+    read_recovery_in(Locale::default())
+}
+
+pub fn read_recovery_in(locale: Locale) -> Result<RecoveryKey> {
     let mut terminal = Terminal::open()?;
-    RecoveryKey::decode(&terminal.read("恢复密钥: ")?)
+    RecoveryKey::decode(&terminal.read(locale.text(TextKey::RecoveryPrompt))?)
 }
 
 /// Explicit one-time display on the controlling terminal, never stdout or diagnostics.
 pub fn show_recovery(key: &RecoveryKey) -> Result<()> {
+    show_recovery_in(key, Locale::default())
+}
+
+pub fn show_recovery_in(key: &RecoveryKey, locale: Locale) -> Result<()> {
     let mut terminal = Terminal::open()?;
     write!(
         terminal.output,
-        "恢复密钥（请独立保存）: {}\r\n",
+        "{}{}\r\n",
+        locale.text(TextKey::RecoveryDisplay),
         *key.encode()?
     )?;
     terminal.output.flush()?;

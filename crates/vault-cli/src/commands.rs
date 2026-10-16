@@ -5,6 +5,26 @@ use vault_cli::password;
 use vault_core::{
     CreateOptions, Credential, Error, Id, OpenMode, Result, Vault, operation::Operation,
 };
+use vault_i18n::{Locale, TextKey};
+
+/// Select help text before clap handles --help. Clap still validates the option.
+pub fn requested_locale(args: &[std::ffi::OsString]) -> Locale {
+    let mut args = args.iter().skip(1).take_while(|arg| *arg != "--");
+    let mut locale = Locale::default();
+    while let Some(arg) = args.next() {
+        let value = if arg == "--lang" {
+            args.next().and_then(|value| value.to_str())
+        } else {
+            arg.to_str().and_then(|arg| arg.strip_prefix("--lang="))
+        };
+        match value {
+            Some("en-US") => locale = Locale::EnUs,
+            Some("zh-CN") => locale = Locale::ZhCn,
+            _ => {}
+        }
+    }
+    locale
+}
 
 fn text(name: &'static str) -> Arg {
     Arg::new(name).required(true)
@@ -21,7 +41,7 @@ fn flag(name: &'static str, help: &'static str) -> Arg {
         .action(ArgAction::SetTrue)
         .help(help)
 }
-fn parent() -> Arg {
+fn parent(locale: Locale) -> Arg {
     Arg::new("parent")
         .long("parent")
         .default_value("root")
@@ -29,106 +49,178 @@ fn parent() -> Arg {
             "root" => Ok(None),
             value => value.parse::<Id>().map(Some),
         })
-        .help("目标目录 ID 或 root")
+        .help(locale.text(TextKey::ParentHelp))
 }
-fn vault_command(name: &'static str, help: &'static str) -> Command {
+fn vault_command(locale: Locale, name: &'static str, help: &'static str) -> Command {
     Command::new(name)
         .about(help)
         .arg(path("vault"))
-        .arg(flag("recovery-key", "从控制终端读取恢复密钥"))
+        .arg(flag("recovery-key", locale.text(TextKey::RecoveryHelp)))
 }
-fn readable(name: &'static str, help: &'static str) -> Command {
-    vault_command(name, help).arg(
+fn readable(locale: Locale, name: &'static str, help: &'static str) -> Command {
+    vault_command(locale, name, help).arg(
         Arg::new("commit")
             .long("commit")
             .value_parser(value_parser!(Id))
-            .help("显式选择历史提交，只读恢复"),
+            .help(locale.text(TextKey::CommitHelp)),
     )
 }
 
-pub fn command() -> Command {
-    Command::new("bkm")
+fn localized_help(command: Command, locale: Locale) -> Command {
+    command
+        .help_template(locale.text(TextKey::HelpTemplate))
+        .subcommand_help_heading(locale.text(TextKey::CommandsHeading))
+        .disable_help_flag(true)
+        .arg(
+            Arg::new("help")
+                .short('h')
+                .long("help")
+                .action(ArgAction::Help)
+                .help(locale.text(TextKey::HelpDescription)),
+        )
+        .mut_args(|arg| {
+            let heading = if arg.get_long().is_some() || arg.get_short().is_some() {
+                TextKey::OptionsHeading
+            } else {
+                TextKey::ArgumentsHeading
+            };
+            let takes_values = arg.get_action().takes_values();
+            let arg = arg.help_heading(locale.text(heading));
+            if takes_values {
+                arg.hide_default_value(true).hide_possible_values(true)
+            } else {
+                arg
+            }
+        })
+}
+
+pub fn command(locale: Locale) -> Command {
+    let vault_command = |name, help| vault_command(locale, name, help);
+    let readable = |name, help| readable(locale, name, help);
+    let parent = || parent(locale);
+    let command = Command::new("bkm")
         .version(env!("CARGO_PKG_VERSION"))
+        .disable_version_flag(true)
+        .disable_help_subcommand(true)
+        .arg(
+            Arg::new("version")
+                .short('V')
+                .long("version")
+                .action(ArgAction::Version)
+                .help(locale.text(TextKey::VersionDescription)),
+        )
         .about(vault_core::PRODUCT_NAME)
-        .after_help(vault_core::DEVELOPMENT_STATUS)
-        .arg(flag("json", "输出单行 JSON 结果；错误仍写入 stderr").global(true))
+        .after_help(locale.text(TextKey::ExperimentalWarning))
+        .arg(
+            Arg::new("lang")
+                .long("lang")
+                .global(true)
+                .value_parser(["zh-CN", "en-US"])
+                .default_value("zh-CN")
+                .help(locale.text(TextKey::LanguageHelp)),
+        )
+        .arg(flag("json", locale.text(TextKey::JsonHelp)).global(true))
         .subcommand(
             Command::new("create")
-                .about("创建实验保险库，密码输入两遍")
+                .about(locale.text(TextKey::CreateHelp))
                 .arg(path("vault"))
-                .arg(flag("recovery", "生成并在控制终端一次性显示恢复密钥")),
+                .arg(flag("recovery", locale.text(TextKey::GenerateRecoveryHelp))),
         )
         .subcommand(
-            readable("list", "列出条目，输出 JSON Lines").arg(flag("trash", "只显示回收站")),
+            readable("list", locale.text(TextKey::ListHelp))
+                .arg(flag("trash", locale.text(TextKey::TrashListHelp))),
         )
         .subcommand(
-            readable("search", "搜索解锁后的名称")
+            readable("search", locale.text(TextKey::SearchHelp))
                 .arg(text("query"))
-                .arg(flag("trash", "只搜索回收站")),
+                .arg(flag("trash", locale.text(TextKey::TrashSearchHelp))),
         )
         .subcommand(
-            vault_command("mkdir", "新建逻辑目录")
+            vault_command("mkdir", locale.text(TextKey::MkdirHelp))
                 .arg(text("name"))
                 .arg(parent()),
         )
         .subcommand(
-            vault_command("import", "导入普通文件并保留源文件")
+            vault_command("import", locale.text(TextKey::ImportHelp))
                 .arg(path("source"))
                 .arg(text("name"))
                 .arg(parent()),
         )
         .subcommand(
-            vault_command("replace", "替换文件内容")
+            vault_command("replace", locale.text(TextKey::ReplaceHelp))
                 .arg(id())
                 .arg(path("source")),
         )
         .subcommand(
-            readable("export", "完整认证后导出，拒绝覆盖")
+            readable("export", locale.text(TextKey::ExportHelp))
                 .arg(id())
                 .arg(path("destination")),
         )
         .subcommand(
-            vault_command("rename", "重命名条目")
+            vault_command("rename", locale.text(TextKey::RenameHelp))
                 .arg(id())
                 .arg(text("name")),
         )
-        .subcommand(vault_command("move", "移动条目").arg(id()).arg(parent()))
-        .subcommand(vault_command("trash", "移入加密回收站").arg(id()))
-        .subcommand(vault_command("restore", "恢复本次删除").arg(id()))
         .subcommand(
-            vault_command(
-                "empty-trash",
-                "清空回收站并退役本地历史快照；不影响独立备份",
-            )
-            .arg(
+            vault_command("move", locale.text(TextKey::MoveHelp))
+                .arg(id())
+                .arg(parent()),
+        )
+        .subcommand(vault_command("trash", locale.text(TextKey::TrashHelp)).arg(id()))
+        .subcommand(vault_command("restore", locale.text(TextKey::RestoreHelp)).arg(id()))
+        .subcommand(
+            vault_command("empty-trash", locale.text(TextKey::EmptyTrashHelp)).arg(
                 Arg::new("confirm")
                     .long("confirm")
                     .required(true)
                     .num_args(0)
                     .action(ArgAction::SetTrue)
-                    .help("确认清空及退役所有本地历史恢复点"),
+                    .help(locale.text(TextKey::ConfirmEmptyHelp)),
             ),
         )
         .subcommand(
-            vault_command("gc", "退役所有本地历史快照并回收无引用对象").arg(
+            vault_command("gc", locale.text(TextKey::CollectHelp)).arg(
                 Arg::new("confirm")
                     .long("confirm")
                     .required(true)
                     .num_args(0)
                     .action(ArgAction::SetTrue)
-                    .help("确认退役所有本地历史恢复点"),
+                    .help(locale.text(TextKey::ConfirmCollectHelp)),
             ),
         )
-        .subcommand(readable("space", "显示密文对象空间，单位字节"))
-        .subcommand(vault_command("inspect", "认证提交图并检查当前元数据及引用"))
-        .subcommand(readable("check", "逐对象完整认证全部内容"))
+        .subcommand(readable("space", locale.text(TextKey::SpaceHelp)))
+        .subcommand(vault_command("inspect", locale.text(TextKey::InspectHelp)))
+        .subcommand(readable("check", locale.text(TextKey::CheckHelp)))
         .subcommand(
-            readable(
-                "batch",
-                "单次解锁顺序执行 JSON Lines；失败即停，已完成操作不回滚",
-            )
-            .arg(path("input").help("命令文件；- 从数据 stdin 读取，最多 1 MiB / 1000 条")),
+            readable("batch", locale.text(TextKey::BatchHelp))
+                .arg(path("input").help(locale.text(TextKey::BatchInputHelp))),
         )
+        .subcommand(
+            Command::new("help")
+                .about(locale.text(TextKey::HelpCommandDescription))
+                .arg(Arg::new("command").value_parser([
+                    "create",
+                    "list",
+                    "search",
+                    "mkdir",
+                    "import",
+                    "replace",
+                    "export",
+                    "rename",
+                    "move",
+                    "trash",
+                    "restore",
+                    "empty-trash",
+                    "gc",
+                    "space",
+                    "inspect",
+                    "check",
+                    "batch",
+                    "help",
+                ])),
+        )
+        .mut_subcommands(|command| localized_help(command, locale));
+    localized_help(command, locale)
 }
 
 pub(crate) fn get<'a, T: Clone + Send + Sync + 'static>(args: &'a ArgMatches, name: &str) -> &'a T {
@@ -138,13 +230,18 @@ fn target_parent(args: &ArgMatches) -> Result<Option<Id>> {
     Ok(*get::<Option<Id>>(args, "parent"))
 }
 
-pub(crate) fn open(args: &ArgMatches, path: &Path, mode: OpenMode) -> Result<Vault> {
+pub(crate) fn open(
+    args: &ArgMatches,
+    path: &Path,
+    mode: OpenMode,
+    locale: Locale,
+) -> Result<Vault> {
     // Credentials leave scope immediately after unlock, before long file operations.
     if args.get_flag("recovery-key") {
-        let key = password::read_recovery()?;
+        let key = password::read_recovery_in(locale)?;
         Vault::open(path, Credential::Recovery(&key), mode)
     } else {
-        let key = password::read_password(false)?;
+        let key = password::read_password_in(false, locale)?;
         Vault::open(path, Credential::Password(&key), mode)
     }
 }
@@ -153,14 +250,14 @@ pub(crate) fn readonly(name: &str) -> bool {
     ["list", "search", "export", "check", "space"].contains(&name)
 }
 
-pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
+pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Result<()> {
     let (name, args) = matches.subcommand().ok_or(Error::InvalidInput)?;
     let path = get::<PathBuf>(args, "vault");
     if name == "batch" {
-        return crate::batch::run(args, operation);
+        return crate::batch::run(args, operation, locale);
     }
     if name == "create" {
-        let password = password::read_password(true)?;
+        let password = password::read_password_in(true, locale)?;
         operation.check_cancelled()?;
         let (_, recovery) = Vault::create_with_operation(
             path,
@@ -173,21 +270,21 @@ pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
         )?;
         drop(password);
         if let Some(recovery) = recovery {
-            password::show_recovery(&recovery).inspect_err(|_| {
-                diagnostic("保险库已创建，但恢复密钥显示失败；仍可使用密码打开保险库。");
+            password::show_recovery_in(&recovery, locale).inspect_err(|_| {
+                diagnostic(locale.text(TextKey::RecoveryDisplayFailed));
             })?;
         }
-        return Response::Created.print(args.get_flag("json"), true);
+        return Response::Created.print(args.get_flag("json"), true, locale);
     }
     if name == "inspect" {
         let report = if args.get_flag("recovery-key") {
-            let key = password::read_recovery()?;
+            let key = password::read_recovery_in(locale)?;
             Vault::inspect(path, Credential::Recovery(&key))?
         } else {
-            let key = password::read_password(false)?;
+            let key = password::read_password_in(false, locale)?;
             Vault::inspect(path, Credential::Password(&key))?
         };
-        return Response::Inspection(report).print(args.get_flag("json"), false);
+        return Response::Inspection(report).print(args.get_flag("json"), false, locale);
     }
     let mode = if readonly(name) {
         args.get_one::<Id>("commit")
@@ -196,9 +293,12 @@ pub fn run(matches: &ArgMatches, operation: &Operation) -> Result<()> {
     } else {
         OpenMode::ReadWrite
     };
-    let mut vault = open(args, path, mode)?;
-    execute(name, args, &mut vault, operation)?
-        .print(args.get_flag("json"), !readonly(name) || name == "export")
+    let mut vault = open(args, path, mode, locale)?;
+    execute(name, args, &mut vault, operation)?.print(
+        args.get_flag("json"),
+        !readonly(name) || name == "export",
+        locale,
+    )
 }
 
 pub(crate) fn execute<'a>(
@@ -270,4 +370,71 @@ pub(crate) fn execute<'a>(
         "check" => Response::Content(vault.verify_content(operation)?),
         _ => return Err(Error::InvalidInput),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_selection_precedes_help_and_respects_positional_terminator() {
+        for args in [
+            vec!["bkm", "--lang", "en-US", "--help"],
+            vec!["bkm", "list", "vault", "--lang=en-US", "--help"],
+            vec!["bkm", "--lang=en-US"],
+        ] {
+            let args: Vec<_> = args.into_iter().map(Into::into).collect();
+            let locale = requested_locale(&args);
+            assert_eq!(locale, Locale::EnUs);
+            let mut help = Vec::new();
+            command(locale).write_long_help(&mut help).unwrap();
+            let help = String::from_utf8(help).unwrap();
+            assert!(help.contains("Create an experimental vault"));
+            assert!(!help.contains("创建实验保险库"));
+        }
+        let args: Vec<_> = ["bkm", "mkdir", "vault", "--", "--lang=en-US"]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        assert_eq!(requested_locale(&args), Locale::ZhCn);
+        let matches = command(Locale::ZhCn).try_get_matches_from(args).unwrap();
+        assert_eq!(
+            get::<String>(matches.subcommand().unwrap().1, "name"),
+            "--lang=en-US"
+        );
+        assert!(
+            command(Locale::ZhCn)
+                .try_get_matches_from(["bkm", "--lang", "fr-FR"])
+                .is_err()
+        );
+        for locale in [Locale::ZhCn, Locale::EnUs] {
+            let mut command = command(locale);
+            command.build();
+            for target in [None, Some("create"), Some("list"), Some("help")] {
+                let mut command = match target {
+                    Some(name) => command.find_subcommand(name).unwrap().clone(),
+                    None => command.clone(),
+                };
+                let mut help = Vec::new();
+                command.write_long_help(&mut help).unwrap();
+                let help = String::from_utf8(help).unwrap();
+                assert!(help.contains(locale.text(TextKey::OptionsHeading)));
+                assert!(help.contains(locale.text(TextKey::HelpDescription)));
+                if locale == Locale::ZhCn {
+                    for english in [
+                        "Usage:",
+                        "Commands:",
+                        "Options:",
+                        "Arguments:",
+                        "Print help",
+                        "Print version",
+                        "[default:",
+                        "[possible values:",
+                    ] {
+                        assert!(!help.contains(english), "untranslated {english}: {help}");
+                    }
+                }
+            }
+        }
+    }
 }

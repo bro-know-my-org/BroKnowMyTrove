@@ -57,8 +57,18 @@ fn run_command(mut command: Command) -> Output {
 #[test]
 fn help_and_version_work_without_a_display() {
     for (args, expected) in [
-        (vec![], "Usage: bkm"),
-        (vec!["--help"], "Usage: bkm"),
+        (vec![], "用法: bkm"),
+        (vec!["--help"], "用法: bkm"),
+        (vec!["--lang", "en-US", "--help"], "Usage: bkm"),
+        (
+            vec!["create", "--lang=en-US", "--help"],
+            "Usage: bkm create",
+        ),
+        (
+            vec!["help", "create", "--lang", "zh-CN"],
+            "用法: bkm create",
+        ),
+        (vec!["help", "list", "--lang", "en-US"], "Usage: bkm list"),
         (
             vec!["--version"],
             concat!("bkm ", env!("CARGO_PKG_VERSION")),
@@ -91,5 +101,42 @@ fn missing_arguments_fail_before_requesting_credentials() {
     let output = run(&["create"]);
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("缺少必需参数"));
+}
+
+#[test]
+fn parsing_errors_are_localized_and_do_not_echo_argument_values() {
+    for (locale, missing, unknown, invalid) in [
+        ("zh-CN", "缺少必需参数", "未知选项或命令", "参数值无效"),
+        (
+            "en-US",
+            "required arguments are missing",
+            "unknown option or command",
+            "invalid argument value",
+        ),
+    ] {
+        for (args, expected) in [
+            (vec!["--lang", locale, "create"], missing),
+            (vec!["--lang", locale, "--private-unknown-option"], unknown),
+            (
+                vec![
+                    "--lang",
+                    locale,
+                    "mkdir",
+                    "private-vault-path",
+                    "private-file-name",
+                    "--parent",
+                    "private-invalid-id",
+                ],
+                invalid,
+            ),
+        ] {
+            let output = run(&args);
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(expected), "{stderr}");
+            assert!(!stderr.contains("private-"), "{stderr}");
+        }
+    }
 }

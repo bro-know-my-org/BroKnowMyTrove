@@ -9,6 +9,7 @@ use vault_core::{
     CleanupReport, ContentReport, Entry, EntryKind, Error, Id, Inspection, Issue, Result,
     StorageUsage,
 };
+use vault_i18n::{Locale, TextKey};
 
 pub enum Response<'a> {
     Empty,
@@ -42,9 +43,9 @@ pub fn output(value: &impl std::fmt::Display) -> Result<()> {
 }
 
 impl Response<'_> {
-    pub fn into_json(mut self) -> (Value, Result<()>) {
+    pub fn into_json(mut self, locale: Locale) -> (Value, Result<()>) {
         let value = self.json();
-        (value, self.finish())
+        (value, self.finish(locale))
     }
 
     fn json(&mut self) -> Value {
@@ -105,7 +106,7 @@ impl Response<'_> {
         }
     }
 
-    pub fn finish(self) -> Result<()> {
+    pub fn finish(self, locale: Locale) -> Result<()> {
         match self {
             Self::Inspection(report) if !report.issues.is_empty() => Err(Error::ReadOnly),
             Self::Content(report) if !report.failed_objects.is_empty() => {
@@ -113,7 +114,7 @@ impl Response<'_> {
             }
             Self::Cleanup(report) => {
                 if report.failure.is_some() {
-                    diagnostic("清理未完成，可重试；已提交的目录变更不会回滚。");
+                    diagnostic(locale.text(TextKey::CleanupFailed));
                 }
                 report.failure.map_or(Ok(()), Err)
             }
@@ -121,25 +122,25 @@ impl Response<'_> {
         }
     }
 
-    pub fn print(mut self, json: bool, may_change: bool) -> Result<()> {
+    pub fn print(mut self, json: bool, may_change: bool, locale: Locale) -> Result<()> {
         let (printed, result) = if json {
-            let (value, result) = self.into_json();
+            let (value, result) = self.into_json(locale);
             (output(&value), result)
         } else {
-            (self.print_text(), self.finish())
+            (self.print_text(locale), self.finish(locale))
         };
         if printed.is_err() && may_change {
-            diagnostic("保险库操作已执行，但结果输出失败；请检查保险库状态。");
+            diagnostic(locale.text(TextKey::OutputFailed));
         }
         // Report semantic failure even if the report could not be printed.
         result?;
         printed
     }
 
-    fn print_text(&mut self) -> Result<()> {
+    fn print_text(&mut self, locale: Locale) -> Result<()> {
         match self {
             Self::Empty => Ok(()),
-            Self::Created => output(&"保险库已创建"),
+            Self::Created => output(&locale.text(TextKey::Created)),
             Self::Id(id) => output(id),
             Self::Entries(entries) => {
                 for entry in entries {
@@ -147,18 +148,59 @@ impl Response<'_> {
                 }
                 Ok(())
             }
-            Self::Inspection(report) => output(&format_args!("{report:#?}")),
+            Self::Inspection(report) => {
+                output(&format_args!(
+                    "{}: {}",
+                    locale.text(TextKey::HeadCommit),
+                    report.head.map_or_else(|| "—".into(), |id| id.to_string())
+                ))?;
+                output(&format_args!(
+                    "{}: {}",
+                    locale.text(TextKey::TemporaryFiles),
+                    report.temporary_files
+                ))?;
+                for commit in &report.commits {
+                    output(&format_args!(
+                        "{}: {} · {}: {} · {}: {}",
+                        locale.text(TextKey::Commit),
+                        commit.id,
+                        locale.text(TextKey::Sequence),
+                        commit.sequence,
+                        locale.text(TextKey::SnapshotPresent),
+                        locale.boolean(commit.snapshot_present)
+                    ))?;
+                }
+                for issue in &report.issues {
+                    let (key, id) = match issue {
+                        Issue::DamagedCommit(id) => (TextKey::IssueDamagedCommit, Some(id)),
+                        Issue::InvalidCommitGraph => (TextKey::IssueInvalidGraph, None),
+                        Issue::UnexpectedPhysicalEntry => (TextKey::IssueUnexpectedEntry, None),
+                        Issue::MissingSnapshot(id) => (TextKey::IssueMissingSnapshot, Some(id)),
+                        Issue::DamagedSnapshot(id) => (TextKey::IssueDamagedSnapshot, Some(id)),
+                        Issue::MissingObject(id) => (TextKey::IssueMissingObject, Some(id)),
+                        Issue::DamagedObject(id) => (TextKey::IssueDamagedObject, Some(id)),
+                    };
+                    output(&format_args!(
+                        "{}: {}",
+                        locale.text(key),
+                        id.map_or_else(String::new, ToString::to_string)
+                    ))?;
+                }
+                Ok(())
+            }
             Self::Space(usage) => output(&format_args!(
-                "{usage:#?}\n回收站空间须先清空；回收无引用对象将退役所有本地历史快照。"
+                "{}\n{}",
+                locale.storage(usage),
+                locale.text(TextKey::SpaceWarning)
             )),
-            Self::Content(report) => output(&format_args!("{report:#?}")),
-            Self::Cleanup(report) => output(&format_args!(
-                "回收站提交={}；退役快照={}；已删除对象字节={}；临时文件字节={}",
-                report.trash_committed,
-                report.retired_snapshots,
-                report.reclaimed_object_bytes,
-                report.removed_temporary_bytes
-            )),
+            Self::Content(report) => {
+                output(&locale.content(report))?;
+                for id in &report.failed_objects {
+                    output(id)?;
+                }
+                Ok(())
+            }
+            Self::Cleanup(report) => output(&locale.cleanup(report)),
         }
     }
 }

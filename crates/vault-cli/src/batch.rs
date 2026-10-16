@@ -13,11 +13,12 @@ use std::{
     time::Duration,
 };
 use vault_core::{Error, Id, OpenMode, Result, operation::Operation};
+use vault_i18n::{Locale, TextKey};
 
 const INPUT_LIMIT: u64 = 1024 * 1024;
 const COMMAND_LIMIT: usize = 1000;
 
-fn parse(input: impl Read) -> Result<Vec<ArgMatches>> {
+fn parse(input: impl Read, locale: Locale) -> Result<Vec<ArgMatches>> {
     let mut bytes = Vec::new();
     input.take(INPUT_LIMIT + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > INPUT_LIMIT {
@@ -30,10 +31,7 @@ fn parse(input: impl Read) -> Result<Vec<ArgMatches>> {
             return Err(Error::ResourceLimit);
         }
         plan.push(parse_line(line).inspect_err(|_| {
-            diagnostic(&format!(
-                "批量输入第 {} 行无效；未执行任何操作。",
-                index + 1
-            ));
+            diagnostic(&locale.invalid_batch_line(index + 1));
         })?);
     }
     if plan.is_empty() {
@@ -63,7 +61,7 @@ fn parse_line(line: &str) -> Result<ArgMatches> {
     }
     // Reuse the CLI grammar, injecting a placeholder for the one shared vault.
     // Never render clap errors: they may contain plaintext names or source paths.
-    let matches = commands::command()
+    let matches = commands::command(Locale::default())
         .try_get_matches_from(
             ["bkm", name, "batch-vault"]
                 .into_iter()
@@ -72,21 +70,24 @@ fn parse_line(line: &str) -> Result<ArgMatches> {
         )
         .map_err(|_| Error::InvalidInput)?;
     let (_, args) = matches.subcommand().ok_or(Error::InvalidInput)?;
-    if args.get_flag("recovery-key") || args.try_get_one::<Id>("commit").ok().flatten().is_some() {
+    if args.get_flag("recovery-key")
+        || args.try_get_one::<Id>("commit").ok().flatten().is_some()
+        || args.value_source("lang") == Some(clap::parser::ValueSource::CommandLine)
+    {
         return Err(Error::InvalidInput);
     }
     Ok(matches)
 }
 
-pub fn run(args: &ArgMatches, operation: &Operation) -> Result<()> {
+pub fn run(args: &ArgMatches, operation: &Operation, locale: Locale) -> Result<()> {
     let input = commands::get::<PathBuf>(args, "input").clone();
     // Validate the entire bounded plan before prompting or opening a vault.
     let plan = interruptible(
         move || {
             if input.as_os_str() == "-" {
-                parse(io::stdin().lock())
+                parse(io::stdin().lock(), locale)
             } else {
-                parse(File::open(input)?)
+                parse(File::open(input)?, locale)
             }
         },
         operation,
@@ -104,11 +105,11 @@ pub fn run(args: &ArgMatches, operation: &Operation) -> Result<()> {
     } else {
         OpenMode::ReadWrite
     };
-    let mut vault = commands::open(args, commands::get::<PathBuf>(args, "vault"), mode)?;
+    let mut vault = commands::open(args, commands::get::<PathBuf>(args, "vault"), mode, locale)?;
     for (index, matches) in plan.iter().enumerate() {
         let (name, args) = matches.subcommand().ok_or(Error::InvalidInput)?;
         let (data, result) = match commands::execute(name, args, &mut vault, operation) {
-            Ok(response) => response.into_json(),
+            Ok(response) => response.into_json(locale),
             Err(error) => (Value::Null, Err(error)),
         };
         let mut record = json!({
@@ -119,7 +120,7 @@ pub fn run(args: &ArgMatches, operation: &Operation) -> Result<()> {
         record["result"] = data;
         let printed = interruptible(move || output(&record), operation);
         if result.is_err() || printed.is_err() {
-            diagnostic("批处理已停止；此前完成的操作不会回滚，结果不确定时请检查保险库状态。");
+            diagnostic(locale.text(TextKey::BatchStopped));
         }
         // Preserve cancellation/uncertain-commit semantics even on output failure.
         result?;
@@ -189,18 +190,31 @@ mod tests {
             "[\"gc\"]",
             "[\"empty-trash\"]",
             "[\"list\",\"--recovery-key\"]",
+            "[\"list\",\"--lang\",\"en-US\"]",
             "[\"list\",\"--commit\",\"00000000000000000000000000000000\"]",
             "[\"mkdir\",\"ok\"]\n[\"mkdir\",\"bad\",\"--parent\",\"invalid\"]",
         ] {
-            assert!(parse(input.as_bytes()).is_err(), "accepted {input}");
+            assert!(
+                parse(input.as_bytes(), Locale::default()).is_err(),
+                "accepted {input}"
+            );
         }
-        assert!(parse("[\"list\"]\n[\"gc\",\"--confirm\"]\n".as_bytes()).is_ok());
+        assert!(
+            parse(
+                "[\"list\"]\n[\"gc\",\"--confirm\"]\n".as_bytes(),
+                Locale::default()
+            )
+            .is_ok()
+        );
         assert!(matches!(
-            parse(io::repeat(b' ').take(INPUT_LIMIT + 1)),
+            parse(io::repeat(b' ').take(INPUT_LIMIT + 1), Locale::default()),
             Err(Error::ResourceLimit)
         ));
         assert!(matches!(
-            parse("[\"list\"]\n".repeat(COMMAND_LIMIT + 1).as_bytes()),
+            parse(
+                "[\"list\"]\n".repeat(COMMAND_LIMIT + 1).as_bytes(),
+                Locale::default()
+            ),
             Err(Error::ResourceLimit)
         ));
     }
