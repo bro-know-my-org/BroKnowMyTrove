@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    CreateOptions, Credential, OpenMode,
+    CreateOptions,
     crypto::{KdfParams, Password, RecoveryKey},
 };
 use BackupVerification::{Copy, Full};
@@ -27,8 +27,8 @@ fn fixture() -> (tempfile::TempDir, Vault, Password, RecoveryKey, Id) {
 }
 
 #[test]
-fn backup_without_source_preserves_trash_and_only_current_objects() {
-    let (temp, mut vault, password, _, id) = fixture();
+fn independent_backup_restores_password_recovery_trash_and_only_current_objects() {
+    let (temp, mut vault, password, recovery, id) = fixture();
     let op = Operation::default();
     let empty = temp.path().join("empty");
     fs::write(&empty, []).unwrap();
@@ -52,8 +52,20 @@ fn backup_without_source_preserves_trash_and_only_current_objects() {
     let original = vault.store.root.clone();
     drop(vault);
     fs::remove_dir_all(original).unwrap();
-    let reopened = Vault::open(
+    let restored = temp.path().join("restored");
+    let copied = Vault::restore_to(
         &backup,
+        Credential::Recovery(&recovery),
+        &restored,
+        Copy,
+        &op,
+    )
+    .unwrap();
+    assert_eq!(copied.commit, report.commit);
+    assert_eq!(copied.verified_objects, 0);
+    assert_eq!(copied.ciphertext_bytes, report.ciphertext_bytes);
+    let mut reopened = Vault::open(
+        &restored,
         Credential::Password(&password),
         OpenMode::ReadWrite,
     )
@@ -65,6 +77,14 @@ fn backup_without_source_preserves_trash_and_only_current_objects() {
     assert_eq!(
         fs::read(temp.path().join("exported")).unwrap(),
         vec![42; 65537]
+    );
+    reopened.restore_entry(trash, &op).unwrap();
+    assert!(
+        reopened
+            .verify_content(&op)
+            .unwrap()
+            .failed_objects
+            .is_empty()
     );
 }
 
@@ -160,7 +180,7 @@ fn publication_attempts_both_syncs_and_retains_first_failure() {
 
 #[test]
 fn metadata_cancellation_stops_before_creating_a_destination() {
-    let (temp, vault, _, _, _) = fixture();
+    let (temp, vault, password, _, _) = fixture();
     let destination = temp.path().join("backup");
     for point in [Point::InventoryEntry, Point::CommitRead] {
         let op = Operation::default().cancelling_at(point);
@@ -170,6 +190,20 @@ fn metadata_cancellation_stops_before_creating_a_destination() {
         ));
         assert!(!destination.exists());
     }
+    let source = vault.store.root.clone();
+    drop(vault);
+    let op = Operation::default().cancelling_at(Point::CommitRead);
+    assert!(matches!(
+        Vault::restore_to(
+            &source,
+            Credential::Password(&password),
+            &destination,
+            Full,
+            &op
+        ),
+        Err(Error::Cancelled)
+    ));
+    assert!(!destination.exists());
 }
 
 #[test]

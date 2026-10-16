@@ -1,5 +1,5 @@
 use crate::{
-    EntryKind, Error, Id, Result, Vault, codec,
+    Credential, EntryKind, Error, Id, OpenMode, Result, Vault, codec,
     files::{ensure_capacity, same_metadata},
     ledger,
     model::object_size,
@@ -186,6 +186,23 @@ impl Vault {
             finish_publication(&target.root, &parent, operation, sync_directory);
         report.ciphertext_bytes = total;
         Ok(report)
+    }
+
+    /// Restores an independently openable backup into a new directory. Full mode is
+    /// recommended for recovery; this never overlays or modifies an existing vault.
+    pub fn restore_to(
+        source: &Path,
+        credential: Credential<'_>,
+        destination: &Path,
+        verification: BackupVerification,
+        operation: &Operation,
+    ) -> Result<BackupReport> {
+        operation.check()?;
+        Self::open_with_operation(source, credential, OpenMode::ReadOnly, operation)?.backup_to(
+            destination,
+            verification,
+            operation,
+        )
     }
 }
 
