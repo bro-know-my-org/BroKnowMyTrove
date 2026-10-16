@@ -21,7 +21,7 @@ PASSWORD = "中文端到端café"
 
 def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expected=0, during=None,
             stdout_sink=None, disconnect_terminal=False, stdin_source=None, stderr_sink=None,
-            language="zh-CN"):
+            language="zh-CN", new_password=None):
     master, slave = pty.openpty()
     before = termios.tcgetattr(slave)
     transcript = b""
@@ -42,10 +42,10 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
         pass_fds=(slave,), preexec_fn=attach,
     )
 
-    def wait(marker):
+    def wait(marker, after=0):
         nonlocal transcript
         end = time.monotonic() + 15
-        while marker.encode() not in transcript:
+        while marker.encode() not in transcript[after:]:
             if time.monotonic() > end or process.poll() is not None:
                 raise AssertionError("CLI terminal prompt unavailable")
             if select.select([master], [], [], 0.1)[0]:
@@ -57,10 +57,21 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
             else ("恢复密钥: ", "密码: ", "再次输入密码: ")
         )
         wait(recovery_prompt if "--recovery-key" in args else password_prompt)
+        after_current_prompt = len(transcript)
         os.write(master, (credential + "\r").encode())
         if confirm:
             wait(confirmation_prompt)
             os.write(master, (PASSWORD + "\r").encode())
+        if new_password is not None:
+            # The current-password editor redraws its prompt per keystroke.
+            # Wait for that terminal session to end before matching a new prompt.
+            wait("\x1b[?2004l", after=after_current_prompt)
+            next_session = transcript.index(b"\x1b[?2004l", after_current_prompt) + len(b"\x1b[?2004l")
+            wait(password_prompt, after=next_session)
+            after_new_prompt = len(transcript)
+            os.write(master, (new_password + "\r").encode())
+            wait(confirmation_prompt, after=after_new_prompt)
+            os.write(master, (new_password + "\r").encode())
         if disconnect_terminal:
             wait("\x1b[?2004l")
             end = time.monotonic() + 2
@@ -82,6 +93,8 @@ def run_cli(args, *, credential=PASSWORD, confirm=False, locale="C.UTF-8", expec
         if master is not None and termios.tcgetattr(slave) != before:
             raise AssertionError("CLI did not restore terminal attributes")
         secrets = [credential, PASSWORD] if confirm else [credential]
+        if new_password is not None:
+            secrets.append(new_password)
         if any(secret.encode() in transcript + stdout + stderr for secret in secrets):
             raise AssertionError("CLI exposed its credential")
         return stdout.decode(), stderr.decode(), transcript.decode()

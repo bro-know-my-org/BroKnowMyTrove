@@ -167,6 +167,13 @@ texts! {
     MoveToTrash: "移入回收站", "Move to trash";
     Restore: "恢复所选", "Restore selected";
     BackupVault: "备份保险库", "Back up vault";
+    ChangePassword: "修改密码", "Change password";
+    RotateRecovery: "生成 / 更换恢复密钥", "Generate / replace recovery key";
+    RemoveRecovery: "移除恢复密钥", "Remove recovery key";
+    KeyUpdateWarning: "仅更新当前库的主密钥包装；旧密码或旧恢复密钥配旧包装副本仍可解密。不能撤销旧备份，主密钥泄露需重新加密整库。", "Only the current vault's master-key wrapping is updated. Old passwords or recovery keys with old key-file copies can still decrypt data. Old backups cannot be revoked; a leaked master key requires re-encryption.";
+    ConfirmKeyUpdate: "确认更新凭据并理解旧副本风险；更换/移除恢复密钥须用密码解锁", "Confirm updating credentials and old-copy risks; replacing/removing recovery requires password unlock";
+    NewPasswordHint: "输入新密码两遍；保留空格，使用相同的 NFC 规范化规则。", "Enter the new password twice; spaces are preserved and the same NFC rules apply.";
+    UpdatedRecoveryDisplayFailed: "恢复入口已更换，但新密钥显示失败；使用密码重新打开并再次生成恢复密钥。", "Recovery entry changed, but displaying its new key failed. Reopen with the password and generate a recovery key again.";
     RestoreVault: "整库恢复", "Restore vault";
     RestoreHint: "选择密文备份，恢复到尚不存在的新目录；不会覆盖原库。", "Choose a ciphertext backup and restore to a new directory; existing vaults are never overwritten.";
     CopyOnly: "仅校验复制（不认证文件内容）", "Verify copy only (contents not authenticated)";

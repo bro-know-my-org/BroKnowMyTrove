@@ -210,6 +210,31 @@ pub fn command(locale: Locale) -> Command {
                     .help(locale.text(TextKey::VerificationHelp)),
             )
         }))
+        .subcommands(
+            [
+                ("change-password", TextKey::ChangePassword),
+                ("rotate-recovery", TextKey::RotateRecovery),
+                ("remove-recovery", TextKey::RemoveRecovery),
+            ]
+            .map(|(name, key)| {
+                let command = if name == "change-password" {
+                    vault_command(name, locale.text(key))
+                } else {
+                    Command::new(name)
+                        .about(locale.text(key))
+                        .arg(path("vault"))
+                };
+                command
+                    .after_help(locale.text(TextKey::KeyUpdateWarning))
+                    .arg(
+                        Arg::new("confirm")
+                            .long("confirm")
+                            .required(true)
+                            .action(ArgAction::SetTrue)
+                            .help(locale.text(TextKey::ConfirmKeyUpdate)),
+                    )
+            }),
+        )
         .subcommand(
             readable("batch", locale.text(TextKey::BatchHelp))
                 .arg(path("input").help(locale.text(TextKey::BatchInputHelp))),
@@ -236,6 +261,9 @@ pub fn command(locale: Locale) -> Command {
                     "check",
                     "backup",
                     "restore-vault",
+                    "change-password",
+                    "rotate-recovery",
+                    "remove-recovery",
                     "batch",
                     "help",
                 ])),
@@ -259,7 +287,13 @@ pub(crate) fn open(
     operation: &Operation,
 ) -> Result<Vault> {
     // Credentials leave scope immediately after unlock, before long file operations.
-    if args.get_flag("recovery-key") {
+    if args
+        .try_get_one::<bool>("recovery-key")
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or(false)
+    {
         let key = password::read_recovery_in(locale)?;
         Vault::open_with_operation(path, Credential::Recovery(&key), mode, operation)
     } else {
@@ -326,6 +360,27 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
         OpenMode::ReadWrite
     };
     let mut vault = open(args, path, mode, locale, operation)?;
+    if matches!(
+        name,
+        "change-password" | "rotate-recovery" | "remove-recovery"
+    ) {
+        diagnostic(locale.text(TextKey::KeyUpdateWarning));
+        match name {
+            "change-password" => {
+                diagnostic(locale.text(TextKey::NewPasswordHint));
+                let new = password::read_password_in(true, locale)?;
+                vault.change_password(&new, operation)?;
+            }
+            "rotate-recovery" => {
+                let key = vault.rotate_recovery_key(operation)?;
+                password::show_recovery_in(&key, locale).inspect_err(|_| {
+                    diagnostic(locale.text(TextKey::UpdatedRecoveryDisplayFailed));
+                })?;
+            }
+            _ => vault.remove_recovery_key(operation)?,
+        }
+        return Response::Empty.print(args.get_flag("json"), true, locale);
+    }
     execute(name, args, &mut vault, operation)?.print(
         args.get_flag("json"),
         !readonly(name) || name == "export",
@@ -407,6 +462,38 @@ pub(crate) fn execute<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changing_recovery_requires_password_authentication_and_explicit_confirmation() {
+        for name in ["rotate-recovery", "remove-recovery"] {
+            assert!(
+                command(Locale::EnUs)
+                    .try_get_matches_from(["bkm", name, "vault", "--recovery-key"])
+                    .is_err()
+            );
+            assert!(
+                command(Locale::EnUs)
+                    .try_get_matches_from(["bkm", name, "vault", "--confirm", "--recovery-key"])
+                    .is_err()
+            );
+            assert!(
+                command(Locale::EnUs)
+                    .try_get_matches_from(["bkm", name, "vault", "--confirm"])
+                    .is_ok()
+            );
+        }
+        assert!(
+            command(Locale::EnUs)
+                .try_get_matches_from([
+                    "bkm",
+                    "change-password",
+                    "vault",
+                    "--confirm",
+                    "--recovery-key"
+                ])
+                .is_ok()
+        );
+    }
 
     #[test]
     fn backup_commands_default_to_full_and_never_select_history() {
