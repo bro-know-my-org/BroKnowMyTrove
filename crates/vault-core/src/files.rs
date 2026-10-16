@@ -266,7 +266,7 @@ fn export_destination(path: &Path) -> Result<PathBuf> {
     Ok(destination)
 }
 
-fn same_metadata(a: &Metadata, b: &Metadata) -> bool {
+pub(crate) fn same_metadata(a: &Metadata, b: &Metadata) -> bool {
     let common = a.len() == b.len() && a.modified().ok() == b.modified().ok();
     #[cfg(unix)]
     {

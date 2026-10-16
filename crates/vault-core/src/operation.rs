@@ -142,4 +142,7 @@ pub(crate) enum Point {
     ObjectReclaimed,
     ExportSynced,
     ExportPublished,
+    BackupPrepared,
+    BackupPublished,
+    BackupDirectorySynced,
 }

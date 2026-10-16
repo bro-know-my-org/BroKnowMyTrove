@@ -27,6 +27,7 @@ pub struct Vault {
     pub(crate) sequence: u64,
     pub(crate) writable: bool,
     pub(crate) issues: Vec<Issue>,
+    pub(crate) key_bytes: zeroize::Zeroizing<Vec<u8>>,
 }
 
 impl Vault {
@@ -52,7 +53,8 @@ impl Vault {
         let mut temporary = tempfile::Builder::new()
             .prefix(".tmp-key-")
             .tempfile_in(&store.root)?;
-        temporary.write_all(&codec::encode(&header, KEY_LIMIT)?)?;
+        let key_bytes = codec::encode(&header, KEY_LIMIT)?;
+        temporary.write_all(&key_bytes)?;
         temporary.as_file().sync_all()?;
         temporary
             .persist_noclobber(store.root.join("keys.json"))
@@ -68,6 +70,7 @@ impl Vault {
             sequence: 0,
             writable: true,
             issues: Vec::new(),
+            key_bytes,
         };
         // Cancellation is honored after KDF, before touching disk. Once creation
         // starts, finish the initial commit so cancellation cannot strand keys alone.
@@ -116,6 +119,7 @@ impl Vault {
             sequence: record.sequence,
             writable: matches!(mode, OpenMode::ReadWrite),
             issues,
+            key_bytes,
         })
     }
 

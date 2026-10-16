@@ -1,5 +1,6 @@
 //! Shared vault core. The experimental format is not a stable product format.
 
+mod backup;
 mod codec;
 pub mod crypto;
 mod error;
@@ -17,6 +18,7 @@ mod vault;
 #[cfg(test)]
 mod recovery_tests;
 
+pub use backup::{BackupReport, BackupVerification};
 pub use error::{Error, Result};
 pub use files::ContentReport;
 pub use garbage::{CleanupReport, StorageUsage};
