@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/vault-core", "crates/vault-cli", "crates/vault-gui", "crates/vault-platform"]
+members = ["crates/vault-core", "crates/vault-cli", "crates/vault-gui", "crates/vault-platform", "crates/vault-i18n"]
 default-members = ["crates/vault-core", "crates/vault-cli"]
 resolver = "3"
 
@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 vault-core = { path = "crates/vault-core" }
+vault-i18n = { path = "crates/vault-i18n" }
 clap = "=4.6.7"
 eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 rfd = "=0.17.2"
