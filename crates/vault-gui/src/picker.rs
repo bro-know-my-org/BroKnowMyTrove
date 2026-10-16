@@ -45,7 +45,15 @@ mod tests {
 
 impl PathInput {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        if ui.text_edit_singleline(&mut *self.text).changed() {
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut *self.text)
+                    .desired_width(f32::INFINITY)
+                    .margin(egui::Margin::symmetric(10, 8))
+                    .hint_text("输入路径或浏览选择…"),
+            )
+            .changed()
+        {
             self.raw = None;
         }
     }

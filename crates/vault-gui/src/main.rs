@@ -10,6 +10,7 @@ mod actions;
 mod files_ui;
 mod picker;
 mod session;
+mod theme;
 use actions::Action;
 use picker::{PathInput, Picker, Target};
 use session::{Request, Session, Task};
@@ -35,7 +36,18 @@ fn main() -> eframe::Result {
             for family in fonts.families.values_mut() {
                 family.push("noto-cjk".into());
             }
+            fonts.font_data.insert(
+                "serif-ui".into(),
+                std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                    "../../../assets/fonts/NotoSerifUI.otf"
+                ))),
+            );
+            fonts.families.insert(
+                egui::FontFamily::Name("serif".into()),
+                vec!["serif-ui".into(), "noto-cjk".into()],
+            );
             cc.egui_ctx.set_fonts(fonts);
+            theme::install(&cc.egui_ctx);
             Ok(Box::new(VaultApp::default()))
         }),
     )
@@ -119,7 +131,7 @@ impl VaultApp {
         self.form.confirmation = Zeroizing::default();
         self.form.show_password = false;
         // Also drop widget editing/undo state. No eframe persistence is enabled.
-        ctx.memory_mut(|memory| *memory = Default::default());
+        theme::clear_widget_memory(ctx);
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
@@ -251,7 +263,7 @@ impl VaultApp {
                 .form
                 .request()
                 .and_then(|request| Task::start(self.form.path.path(), request, ui.ctx().clone()));
-            ui.ctx().memory_mut(|memory| *memory = Default::default());
+            theme::clear_widget_memory(ui.ctx());
             match result {
                 Ok(task) => {
                     self.task = Some(task);
@@ -296,7 +308,7 @@ impl VaultApp {
             ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY));
             if ui.button("已独立保存，继续").clicked() {
                 session.recovery = None;
-                ui.ctx().memory_mut(|memory| *memory = Default::default());
+                theme::clear_widget_memory(ui.ctx());
             }
             return None;
         }
