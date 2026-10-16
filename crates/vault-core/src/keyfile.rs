@@ -87,6 +87,24 @@ impl KeyFile {
         aad
     }
 
+    pub(crate) fn rewrap_password(&mut self, master: &Secret, password: &Password) -> Result<()> {
+        self.salt = crypto::random_array()?;
+        let wrapping = self.kdf.derive(password, &self.salt)?;
+        self.password = crypto::seal(&wrapping, &self.password_aad(), master.0.as_slice())?;
+        Ok(())
+    }
+
+    pub(crate) fn rewrap_recovery(
+        &mut self,
+        master: &Secret,
+        key: Option<&RecoveryKey>,
+    ) -> Result<()> {
+        self.recovery = key
+            .map(|key| crypto::seal(key.secret(), &self.recovery_aad(), master.0.as_slice()))
+            .transpose()?;
+        Ok(())
+    }
+
     fn recovery_aad(&self) -> Vec<u8> {
         let mut aad = b"BKMTREC1".to_vec();
         aad.extend_from_slice(&self.vault_id.0);

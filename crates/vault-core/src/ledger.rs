@@ -60,7 +60,9 @@ pub(crate) fn scan_with_operation(
 ) -> Result<Ledger> {
     operation.check()?;
     let mut report = Inspection::default();
-    if store.unexpected_root_entry(operation)? {
+    let (unexpected, temporary) = store.root_state(operation)?;
+    report.temporary_files = temporary;
+    if unexpected {
         report.issues.push(Issue::UnexpectedPhysicalEntry);
     }
     let inventory = store.inventory_with_operation(Kind::Commit, operation)?;

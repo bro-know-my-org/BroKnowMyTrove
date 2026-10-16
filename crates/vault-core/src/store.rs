@@ -230,7 +230,9 @@ impl Store {
         Ok(result)
     }
 
-    pub fn unexpected_root_entry(&self, operation: &Operation) -> Result<bool> {
+    pub fn root_state(&self, operation: &Operation) -> Result<(bool, usize)> {
+        let mut temporary = 0;
+        let mut unexpected = false;
         for (count, entry) in fs::read_dir(&self.root)?.enumerate() {
             operation.check()?;
             if count >= MAX_ENTRIES {
@@ -242,13 +244,17 @@ impl Store {
             let expected = match name.to_str() {
                 Some("keys.json" | "write.lock") => kind.is_file(),
                 Some("objects" | "snapshots" | "commits") => kind.is_dir(),
+                Some(name) if name.starts_with(".tmp-key-") && kind.is_file() => {
+                    temporary += 1;
+                    true
+                }
                 _ => false,
             };
             if !expected {
-                return Ok(true);
+                unexpected = true;
             }
         }
-        Ok(false)
+        Ok((unexpected, temporary))
     }
 }
 

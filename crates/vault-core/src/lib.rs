@@ -6,6 +6,7 @@ pub mod crypto;
 mod error;
 mod files;
 mod garbage;
+mod key_update;
 mod keyfile;
 mod ledger;
 mod model;
