@@ -223,6 +223,96 @@ fn act(app: &mut VaultApp, ctx: &egui::Context, action: Action) -> String {
     app.notice.render(app.locale)
 }
 
+#[test]
+fn gui_credentials_clear_inputs_and_require_known_password_before_rotation() {
+    use crate::credentials_ui::Credentials;
+    let mut fields = Credentials {
+        current: Zeroizing::new("old".into()),
+        new: Zeroizing::new("中文café".into()),
+        confirmation: Zeroizing::new("中文cafe\u{301}".into()),
+        ..Default::default()
+    };
+    assert!(
+        fields
+            .prepare(TextKey::ChangePassword)
+            .unwrap()
+            .needs_confirmation()
+    );
+    assert!(fields.current.is_empty() && fields.new.is_empty() && fields.confirmation.is_empty());
+    fields.new = Zeroizing::new("new".into());
+    fields.confirmation = Zeroizing::new("mismatch".into());
+    assert!(fields.prepare(TextKey::ChangePassword).is_err());
+    assert!(fields.new.is_empty() && fields.confirmation.is_empty());
+
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("vault");
+    let mut app = VaultApp::default();
+    create(&mut app, &path, &ctx);
+    wait(&mut app, &ctx);
+    let old_key =
+        RecoveryKey::decode(app.session.as_ref().unwrap().recovery.as_ref().unwrap()).unwrap();
+    let header = std::fs::read(path.join("keys.json")).unwrap();
+    assert!(
+        act(
+            &mut app,
+            &ctx,
+            Action::RotateRecovery(Password::new("wrong".into()).unwrap())
+        )
+        .contains("认证失败")
+    );
+    assert_eq!(std::fs::read(path.join("keys.json")).unwrap(), header);
+    act(
+        &mut app,
+        &ctx,
+        Action::ChangePassword(Password::new("new password".into()).unwrap()),
+    );
+    app.lock(&ctx);
+    app.task = Some(
+        Task::start(
+            path.clone(),
+            Request::Recover(old_key, OpenMode::ReadWrite),
+            ctx.clone(),
+        )
+        .unwrap(),
+    );
+    wait(&mut app, &ctx);
+    assert!(app.session.is_some());
+    act(
+        &mut app,
+        &ctx,
+        Action::RotateRecovery(Password::new("new password".into()).unwrap()),
+    );
+    let new_key =
+        RecoveryKey::decode(app.session.as_ref().unwrap().recovery.as_ref().unwrap()).unwrap();
+    app.lock(&ctx);
+    app.task = Some(
+        Task::start(
+            path.clone(),
+            Request::Recover(new_key, OpenMode::ReadWrite),
+            ctx.clone(),
+        )
+        .unwrap(),
+    );
+    wait(&mut app, &ctx);
+    act(
+        &mut app,
+        &ctx,
+        Action::RemoveRecovery(Password::new("new password".into()).unwrap()),
+    );
+    assert!(app.session.as_ref().unwrap().recovery.is_none());
+    app.editor.credentials.current = Zeroizing::new("discard me".into());
+    app.lock(&ctx);
+    assert!(app.editor.credentials.current.is_empty());
+    let vault = Vault::open(
+        &path,
+        Credential::Password(&Password::new("new password".into()).unwrap()),
+        OpenMode::ReadWrite,
+    )
+    .unwrap();
+    assert!(vault.is_writable());
+}
+
 fn entry_id(app: &VaultApp, name: &str) -> Id {
     app.session
         .as_ref()

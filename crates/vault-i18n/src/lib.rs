@@ -168,6 +168,8 @@ texts! {
     Restore: "恢复所选", "Restore selected";
     BackupVault: "备份保险库", "Back up vault";
     ChangePassword: "修改密码", "Change password";
+    Credentials: "密码与恢复密钥", "Password and recovery key";
+    KnownPasswordRequired: "更换或移除恢复密钥前须验证当前密码；忘记密码时先设置新密码。", "Verify the current password before replacing or removing recovery. If forgotten, set a new password first.";
     RotateRecovery: "生成 / 更换恢复密钥", "Generate / replace recovery key";
     RemoveRecovery: "移除恢复密钥", "Remove recovery key";
     KeyUpdateWarning: "仅更新当前库的主密钥包装；旧密码或旧恢复密钥配旧包装副本仍可解密。不能撤销旧备份，主密钥泄露需重新加密整库。", "Only the current vault's master-key wrapping is updated. Old passwords or recovery keys with old key-file copies can still decrypt data. Old backups cannot be revoked; a leaked master key requires re-encryption.";

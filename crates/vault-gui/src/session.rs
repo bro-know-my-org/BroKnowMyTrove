@@ -107,7 +107,7 @@ impl Task {
 
     pub fn action(mut session: Session, action: Action, ctx: egui::Context) -> Result<Self> {
         Self::spawn(ctx, move |operation| {
-            let result = action.run(&mut session.vault, operation);
+            let result = action.run(&mut session, operation);
             Completion {
                 session: Some(session),
                 result,

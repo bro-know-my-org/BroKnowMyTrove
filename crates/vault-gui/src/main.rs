@@ -8,6 +8,7 @@ use vault_i18n::{Locale, TextKey};
 use zeroize::Zeroizing;
 
 mod actions;
+mod credentials_ui;
 mod files_ui;
 mod picker;
 mod session;
@@ -252,7 +253,10 @@ impl VaultApp {
                 if ui
                     .add_sized(
                         [112.0, 28.0],
-                        egui::Button::selectable(self.form.create == create, label),
+                        egui::Button::selectable(
+                            !self.form.restore && self.form.create == create,
+                            label,
+                        ),
                     )
                     .clicked()
                     && (self.form.create != create || self.form.restore)

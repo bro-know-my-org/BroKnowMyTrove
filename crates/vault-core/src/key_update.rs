@@ -8,6 +8,19 @@ use crate::{
 use std::io::Write;
 
 impl Vault {
+    /// Verifies that the password slot unwraps this session's master key.
+    /// Used before replacing recovery access in a recovery-unlocked session.
+    pub fn verify_password(&mut self, password: &Password, operation: &Operation) -> Result<()> {
+        let header = self.key_header(operation)?;
+        let master = header.unlock(crate::Credential::Password(password))?;
+        operation.check()?;
+        self.check_key_source()?;
+        if !alkali::mem::eq(master.0.as_slice(), self.master.0.as_slice())? {
+            return Err(Error::Authentication);
+        }
+        Ok(())
+    }
+
     /// Rewraps the same master key, keeping the KDF parameters and recovery slot.
     /// Old credentials with old key-file copies still decrypt the same master key.
     pub fn change_password(&mut self, password: &Password, operation: &Operation) -> Result<()> {

@@ -13,6 +13,7 @@ pub struct Editor {
     confirmation: Option<Action>,
     backup_path: PathInput,
     copy_only: bool,
+    pub credentials: crate::credentials_ui::Credentials,
 }
 
 impl Editor {
@@ -27,9 +28,22 @@ impl Editor {
         if let Some(action) = &self.confirmation {
             ui.heading(locale.text(TextKey::ConfirmAction));
             ui.vertical(|ui| {
+                let credential = match action {
+                    Action::ChangePassword(_) => Some(TextKey::ChangePassword),
+                    Action::RotateRecovery(_) => Some(TextKey::RotateRecovery),
+                    Action::RemoveRecovery(_) => Some(TextKey::RemoveRecovery),
+                    _ => None,
+                };
+                if let Some(kind) = credential {
+                    ui.label(locale.text(kind));
+                    ui.label(locale.text(TextKey::KeyUpdateWarning));
+                }
                 ui.label(match action {
                     Action::Replace(..) => locale.text(TextKey::ConfirmReplace),
                     Action::Trash(_) => locale.text(TextKey::ConfirmTrash),
+                    Action::ChangePassword(_)
+                    | Action::RotateRecovery(_)
+                    | Action::RemoveRecovery(_) => locale.text(TextKey::ConfirmKeyUpdate),
                     _ => locale.text(TextKey::ConfirmCleanup),
                 });
                 if let Action::Replace(id, _) | Action::Trash(id) = action
@@ -224,6 +238,12 @@ impl Editor {
                     ));
                 }
             });
+        if let Some(result) = self.credentials.ui(ui, locale, writable) {
+            match result {
+                Ok(prepared) => action = Some(prepared),
+                Err(_) => self.credentials.invalid = true,
+            }
+        }
         if action.as_ref().is_some_and(Action::needs_confirmation) {
             self.confirmation = action;
             None

@@ -1,5 +1,6 @@
+use crate::session::Session;
 use std::path::PathBuf;
-use vault_core::{BackupVerification, Id, Result, Vault, operation::Operation};
+use vault_core::{BackupVerification, Id, Result, crypto::Password, operation::Operation};
 use vault_i18n::{Message, TextKey};
 use zeroize::Zeroizing;
 
@@ -17,18 +18,28 @@ pub enum Action {
     Check,
     Space,
     Backup(PathBuf, BackupVerification),
+    ChangePassword(Password),
+    RotateRecovery(Password),
+    RemoveRecovery(Password),
 }
 
 impl Action {
     pub fn needs_confirmation(&self) -> bool {
         matches!(
             self,
-            Self::Replace(..) | Self::Trash(_) | Self::EmptyTrash | Self::Collect
+            Self::Replace(..)
+                | Self::Trash(_)
+                | Self::EmptyTrash
+                | Self::Collect
+                | Self::ChangePassword(_)
+                | Self::RotateRecovery(_)
+                | Self::RemoveRecovery(_)
         )
     }
 
-    pub fn run(self, vault: &mut Vault, operation: &Operation) -> Result<Message> {
+    pub fn run(self, session: &mut Session, operation: &Operation) -> Result<Message> {
         operation.check_cancelled()?;
+        let vault = &mut session.vault;
         match self {
             Self::Mkdir(parent, name) => {
                 vault.mkdir(parent, &name, operation)?;
@@ -64,6 +75,16 @@ impl Action {
                     verification,
                     operation,
                 )?));
+            }
+            Self::ChangePassword(password) => vault.change_password(&password, operation)?,
+            Self::RotateRecovery(password) => {
+                vault.verify_password(&password, operation)?;
+                session.recovery = Some(vault.rotate_recovery_key(operation)?.encode()?);
+            }
+            Self::RemoveRecovery(password) => {
+                vault.verify_password(&password, operation)?;
+                vault.remove_recovery_key(operation)?;
+                session.recovery = None;
             }
         }
         Ok(TextKey::Done.into())
