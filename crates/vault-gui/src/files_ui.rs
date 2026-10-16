@@ -2,6 +2,7 @@ use crate::picker::{PathInput, Target};
 use crate::{Browser, actions::Action};
 use eframe::egui;
 use vault_core::{EntryKind, Id, Vault};
+use vault_i18n::{Locale, TextKey};
 use zeroize::Zeroizing;
 
 #[derive(Default)]
@@ -19,23 +20,29 @@ impl Editor {
         vault: &Vault,
         browser: &Browser,
         picker: &mut Option<Target>,
+        locale: Locale,
     ) -> Option<Action> {
         if let Some(action) = &self.confirmation {
-            ui.heading("确认操作");
+            ui.heading(locale.text(TextKey::ConfirmAction));
             ui.vertical(|ui| {
                 ui.label(match action {
-                    Action::Replace(..) => "确认用本地文件替换所选文件的内容？",
-                    Action::Trash(_) => "确认移入加密回收站？源文件不受影响。",
-                    _ => "将退役全部本地历史恢复点并回收对象；清空还会永久移除回收站条目。独立备份不受影响。",
+                    Action::Replace(..) => locale.text(TextKey::ConfirmReplace),
+                    Action::Trash(_) => locale.text(TextKey::ConfirmTrash),
+                    _ => locale.text(TextKey::ConfirmCleanup),
                 });
                 if let Action::Replace(id, _) | Action::Trash(id) = action
-                    && let Some(entry) = vault.entry(*id) { ui.label(&entry.name); }
-                if let Action::Replace(_, source) = action { ui.label(source.display().to_string()); }
+                    && let Some(entry) = vault.entry(*id)
+                {
+                    ui.label(&entry.name);
+                }
+                if let Action::Replace(_, source) = action {
+                    ui.label(source.display().to_string());
+                }
             });
-            if ui.button("确认执行").clicked() {
+            if ui.button(locale.text(TextKey::Execute)).clicked() {
                 return self.confirmation.take();
             }
-            if ui.button("取消").clicked() {
+            if ui.button(locale.text(TextKey::Cancel)).clicked() {
                 self.confirmation = None;
             }
             return None;
@@ -53,58 +60,57 @@ impl Editor {
             crate::theme::caption(
                 ui,
                 &match entry.kind {
-                    EntryKind::Directory => "文件夹".into(),
-                    EntryKind::File { length, .. } => {
-                        format!("文件 · {}", crate::theme::size(length))
-                    }
+                    EntryKind::Directory => locale.text(TextKey::Folder).into(),
+                    EntryKind::File { length, .. } => locale.file_size(&crate::theme::size(length)),
                 },
             );
             ui.separator();
         } else {
-            crate::theme::caption(ui, "选择项目以查看详情和管理文件。");
+            crate::theme::caption(ui, locale.text(TextKey::SelectItemHint));
         }
-        ui.label("名称");
+        ui.label(locale.text(TextKey::Name));
         ui.add(
             egui::TextEdit::singleline(&mut *self.name)
                 .desired_width(f32::INFINITY)
                 .margin(egui::Margin::symmetric(8, 5))
-                .hint_text("文件或目录名称"),
+                .hint_text(locale.text(TextKey::NameHint)),
         );
         if let Some(entry) = active
             && writable
-            && ui.button("重命名").clicked()
+            && ui.button(locale.text(TextKey::Rename)).clicked()
         {
             action = Some(Action::Rename(entry.id, self.name.clone()));
         }
         egui::CollapsingHeader::new(if file.is_some() {
-            "导入、导出与替换"
+            locale.text(TextKey::Transfer)
         } else {
-            "导入与新建"
+            locale.text(TextKey::ImportCreate)
         })
         .id_salt(("transfer", selected.is_some()))
         .default_open(selected.is_none())
         .show(ui, |ui| {
-            ui.label("本地文件路径");
-            self.path.ui(ui);
+            ui.label(locale.text(TextKey::LocalPath));
+            self.path.ui(ui, locale);
             ui.horizontal(|ui| {
-                if ui.button("选择源文件").clicked() {
+                if ui.button(locale.text(TextKey::SelectSource)).clicked() {
                     *picker = Some(Target::Source);
                 }
-                if ui.button("导出位置").clicked() {
+                if ui.button(locale.text(TextKey::ExportLocation)).clicked() {
                     *picker = Some(Target::Destination);
                 }
             });
-            crate::theme::caption(
-                ui,
-                "导入 / 替换的源文件，或导出目标。导入保留源，导出拒绝覆盖。",
-            );
+            crate::theme::caption(ui, locale.text(TextKey::TransferHint));
             ui.horizontal_wrapped(|ui| {
-                if clicked(ui, "新建目录", writable && !browser.trash) {
+                if clicked(
+                    ui,
+                    locale.text(TextKey::NewDirectory),
+                    writable && !browser.trash,
+                ) {
                     action = Some(Action::Mkdir(browser.parent, self.name.clone()));
                 }
                 if clicked(
                     ui,
-                    "导入",
+                    locale.text(TextKey::Import),
                     writable && !browser.trash && !self.path.is_empty(),
                 ) {
                     action = Some(Action::Import(
@@ -113,12 +119,16 @@ impl Editor {
                         self.path.path(),
                     ));
                 }
-                if clicked(ui, "导出", file.is_some() && !self.path.is_empty()) {
+                if clicked(
+                    ui,
+                    locale.text(TextKey::Export),
+                    file.is_some() && !self.path.is_empty(),
+                ) {
                     action = Some(Action::Export(file.unwrap().id, self.path.path()));
                 }
                 if clicked(
                     ui,
-                    "替换内容",
+                    locale.text(TextKey::Replace),
                     writable && active.is_some() && file.is_some() && !self.path.is_empty(),
                 ) {
                     action = Some(Action::Replace(file.unwrap().id, self.path.path()));
@@ -126,58 +136,70 @@ impl Editor {
             });
         });
         ui.separator();
-        ui.collapsing("移动与回收", |ui| {
-            egui::ComboBox::from_id_salt("move-parent")
-                .width(ui.available_width())
-                .truncate()
-                .selected_text(
-                    self.parent
-                        .and_then(|id| vault.entry(id))
-                        .map_or("根目录", |entry| &entry.name),
-                )
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.parent, None, "根目录");
-                    for entry in vault.entries().filter(|entry| {
-                        !entry.is_trashed() && matches!(entry.kind, EntryKind::Directory)
-                    }) {
-                        ui.selectable_value(
-                            &mut self.parent,
-                            Some(entry.id),
-                            directory_path(vault, entry.id).as_str(),
-                        );
-                    }
-                });
-            if clicked(ui, "移动到目录", writable && active.is_some()) {
-                action = Some(Action::Move(active.unwrap().id, self.parent));
-            }
-            if clicked(ui, "移入回收站", writable && active.is_some()) {
-                action = Some(Action::Trash(active.unwrap().id));
-            }
-            if clicked(
-                ui,
-                "恢复所选",
-                writable && selected.is_some_and(|entry| entry.is_trashed()),
-            ) {
-                action = Some(Action::Restore(selected.unwrap().id));
-            }
-        });
-        ui.add_space(4.0);
-        ui.collapsing("保险库维护", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                if ui.button("完整内容检查").clicked() {
-                    action = Some(Action::Check);
+        egui::CollapsingHeader::new(locale.text(TextKey::MoveTrash))
+            .id_salt("move-trash")
+            .show(ui, |ui| {
+                egui::ComboBox::from_id_salt("move-parent")
+                    .width(ui.available_width())
+                    .truncate()
+                    .selected_text(
+                        self.parent
+                            .and_then(|id| vault.entry(id))
+                            .map_or(locale.text(TextKey::Root), |entry| &entry.name),
+                    )
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.parent, None, locale.text(TextKey::Root));
+                        for entry in vault.entries().filter(|entry| {
+                            !entry.is_trashed() && matches!(entry.kind, EntryKind::Directory)
+                        }) {
+                            ui.selectable_value(
+                                &mut self.parent,
+                                Some(entry.id),
+                                directory_path(vault, entry.id).as_str(),
+                            );
+                        }
+                    });
+                if clicked(
+                    ui,
+                    locale.text(TextKey::MoveTo),
+                    writable && active.is_some(),
+                ) {
+                    action = Some(Action::Move(active.unwrap().id, self.parent));
                 }
-                if ui.button("空间统计").clicked() {
-                    action = Some(Action::Space);
+                if clicked(
+                    ui,
+                    locale.text(TextKey::MoveToTrash),
+                    writable && active.is_some(),
+                ) {
+                    action = Some(Action::Trash(active.unwrap().id));
                 }
-                if clicked(ui, "清空回收站", writable) {
-                    action = Some(Action::EmptyTrash);
-                }
-                if clicked(ui, "回收空间", writable) {
-                    action = Some(Action::Collect);
+                if clicked(
+                    ui,
+                    locale.text(TextKey::Restore),
+                    writable && selected.is_some_and(|entry| entry.is_trashed()),
+                ) {
+                    action = Some(Action::Restore(selected.unwrap().id));
                 }
             });
-        });
+        ui.add_space(4.0);
+        egui::CollapsingHeader::new(locale.text(TextKey::Maintenance))
+            .id_salt("maintenance")
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button(locale.text(TextKey::CheckContent)).clicked() {
+                        action = Some(Action::Check);
+                    }
+                    if ui.button(locale.text(TextKey::Space)).clicked() {
+                        action = Some(Action::Space);
+                    }
+                    if clicked(ui, locale.text(TextKey::ClearTrash), writable) {
+                        action = Some(Action::EmptyTrash);
+                    }
+                    if clicked(ui, locale.text(TextKey::Collect), writable) {
+                        action = Some(Action::Collect);
+                    }
+                });
+            });
         if action.as_ref().is_some_and(Action::needs_confirmation) {
             self.confirmation = action;
             None

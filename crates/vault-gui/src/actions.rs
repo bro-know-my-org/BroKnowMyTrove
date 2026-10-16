@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use vault_core::{Id, Result, Vault, operation::Operation};
+use vault_i18n::{Message, TextKey};
 use zeroize::Zeroizing;
 
 pub enum Action {
@@ -25,7 +26,7 @@ impl Action {
         )
     }
 
-    pub fn run(self, vault: &mut Vault, operation: &Operation) -> Result<String> {
+    pub fn run(self, vault: &mut Vault, operation: &Operation) -> Result<Message> {
         operation.check_cancelled()?;
         match self {
             Self::Mkdir(parent, name) => {
@@ -46,36 +47,17 @@ impl Action {
                 } else {
                     vault.collect_garbage(operation)?
                 };
-                return Ok(format!(
-                    "回收站清空提交：{}；退役 {} 个恢复点；释放对象 {} 字节、临时文件 {} 字节；清理结果：{}",
-                    report.trash_committed,
-                    report.retired_snapshots,
-                    report.reclaimed_object_bytes,
-                    report.removed_temporary_bytes,
-                    report
-                        .failure
-                        .map_or_else(|| "完成".into(), |error| error.to_string())
-                ));
+                return Ok(Message::Cleanup(report));
             }
             Self::Check => {
                 let report = vault.verify_content(operation)?;
-                return Ok(format!(
-                    "完整内容认证：通过 {} 个对象、{} 字节；失败 {} 个对象。",
-                    report.verified_objects,
-                    report.plaintext_bytes,
-                    report.failed_objects.len()
-                ));
+                return Ok(Message::Content((&report).into()));
             }
             Self::Space => {
                 let report = vault.storage_usage()?;
-                return Ok(format!(
-                    "活动 {} 字节；回收站 {} 字节；退役本地恢复点后可回收 {} 字节。",
-                    report.active_object_bytes,
-                    report.trash_object_bytes,
-                    report.reclaimable_object_bytes
-                ));
+                return Ok(Message::Space(report));
             }
         }
-        Ok("操作完成。".into())
+        Ok(TextKey::Done.into())
     }
 }

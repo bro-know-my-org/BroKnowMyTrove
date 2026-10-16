@@ -67,7 +67,11 @@ fn gui_session_roundtrip_lock_wrong_password_recovery_and_idle_clear() {
     );
     wait(&mut app, &ctx);
     assert!(app.session.is_none());
-    assert!(app.notice.contains("authentication failed"));
+    assert!(
+        app.notice
+            .render(Locale::EnUs)
+            .contains("authentication failed")
+    );
     app.task = Some(
         Task::start(
             path.clone(),
@@ -143,7 +147,7 @@ fn act(app: &mut VaultApp, ctx: &egui::Context, action: Action) -> String {
         app.session.is_some(),
         "an action must return its session even on error"
     );
-    app.notice.clone()
+    app.notice.render(app.locale)
 }
 
 fn entry_id(app: &VaultApp, name: &str) -> Id {
@@ -189,7 +193,7 @@ fn gui_file_jobs_roundtrip_preserve_source_and_session_on_failure() {
     std::fs::write(&source, b"replacement").unwrap();
     assert!(Action::Replace(file, source.clone()).needs_confirmation());
     act(&mut app, &ctx, Action::Replace(file, source.clone()));
-    assert!(act(&mut app, &ctx, Action::Export(file, destination.clone())).contains("conflict"));
+    assert!(act(&mut app, &ctx, Action::Export(file, destination.clone())).contains("冲突"));
     assert_eq!(std::fs::read(&destination).unwrap(), b"initial content");
     act(
         &mut app,
@@ -225,7 +229,7 @@ fn gui_file_jobs_roundtrip_preserve_source_and_session_on_failure() {
             &ctx,
             Action::Mkdir(None, Zeroizing::new("拒绝写入".into()))
         )
-        .contains("writes are disabled")
+        .contains("禁止写入")
     );
     assert_eq!(app.session.as_ref().unwrap().vault.entries().count(), 1);
 }
@@ -294,4 +298,42 @@ fn login_tabs_only_clear_sensitive_input_when_switching_modes() {
     assert!(app.form.phrase.is_empty() && app.form.confirmation.is_empty());
     assert!(!app.form.recovery && !app.form.show_password);
     assert_eq!(ctx.data(|data| data.get_temp::<u32>(editing_state)), None);
+}
+
+#[test]
+fn language_switch_renders_existing_job_results_and_keeps_vault_names() {
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = VaultApp::default();
+    create(&mut app, &temp.path().join("vault"), &ctx);
+    // Change language while the worker is running, before receiving its result.
+    app.locale = Locale::EnUs;
+    wait(&mut app, &ctx);
+    act(
+        &mut app,
+        &ctx,
+        Action::Mkdir(None, Zeroizing::new("资料".into())),
+    );
+    assert_eq!(app.notice.render(app.locale), "Operation completed.");
+    app.start_action(Action::Space, &ctx);
+    app.locale = Locale::ZhCn;
+    wait(&mut app, &ctx);
+    assert!(app.notice.render(app.locale).starts_with("活动"));
+    app.locale = Locale::EnUs;
+    assert!(app.notice.render(app.locale).starts_with("Active:"));
+    let vault = &app.session.as_ref().unwrap().vault;
+    assert_eq!(vault.entries().next().unwrap().name, "资料");
+    app.notice = Message::Error(ErrorContext::Operation, Error::Authentication);
+    assert!(
+        app.notice
+            .render(app.locale)
+            .starts_with("authentication failed")
+    );
+    app.locale = Locale::ZhCn;
+    assert!(app.notice.render(app.locale).starts_with("认证失败"));
+    app.locale = Locale::EnUs;
+    app.lock(&ctx);
+    assert_eq!(app.locale, Locale::EnUs);
+    assert!(app.form.phrase.is_empty());
+    login_frame(&ctx, &mut app, vec![]);
 }

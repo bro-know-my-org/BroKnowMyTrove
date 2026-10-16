@@ -4,6 +4,7 @@ use vault_core::{
     CreateOptions, EntryKind, Error, Id, OpenMode, Result,
     crypto::{Password, RecoveryKey},
 };
+use vault_i18n::{Locale, TextKey};
 use zeroize::Zeroizing;
 
 mod actions;
@@ -12,8 +13,9 @@ mod picker;
 mod session;
 mod theme;
 use actions::Action;
-use picker::{PathInput, Picker, Target};
+use picker::{NEW_VAULT_DIRECTORY, PathInput, Picker, Target};
 use session::{Request, Session, Task};
+use vault_i18n::{ErrorContext, Message};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -115,7 +117,8 @@ struct VaultApp {
     picker: Option<Picker>,
     discard_result: bool,
     close_when_done: bool,
-    notice: String,
+    locale: Locale,
+    notice: Message,
     last_activity: Option<Instant>,
 }
 
@@ -142,7 +145,7 @@ impl VaultApp {
             if let Some(path) = selection {
                 match target {
                     Target::Vault => self.form.path.set(if self.form.create {
-                        path.join("新保险库")
+                        path.join(NEW_VAULT_DIRECTORY)
                     } else {
                         path
                     }),
@@ -155,14 +158,14 @@ impl VaultApp {
                     Target::Destination => self.editor.path.set(path),
                 }
             } else {
-                self.notice = "选择已取消或系统选择器不可用；可手填路径。".into();
+                self.notice = TextKey::PickerCancelled.into();
             }
         }
         if let Some(result) = self.task.as_ref().and_then(Task::poll) {
             self.task = None; // Join before accepting another operation.
             if self.discard_result {
                 drop(result);
-                self.notice = "已停止并锁定；操作可能已提交，请重新打开核查。".into();
+                self.notice = TextKey::StoppedLocked.into();
             } else {
                 self.session = result.session;
                 match result.result {
@@ -172,10 +175,7 @@ impl VaultApp {
                         self.notice = message;
                         self.last_activity = Some(Instant::now());
                     }
-                    Err(error) => {
-                        self.notice =
-                            format!("{error}；已完成的提交不会回滚，结果不确定时请锁定并重新检查。")
-                    }
+                    Err(error) => self.notice = Message::Error(ErrorContext::Operation, error),
                 }
                 if self.session.is_none() {
                     self.lock(ctx);
@@ -199,7 +199,7 @@ impl VaultApp {
                 .is_some_and(|last| time.duration_since(last) >= Duration::from_secs(300))
         {
             self.lock(ctx);
-            self.notice = "空闲超时，已锁定。".into();
+            self.notice = TextKey::IdleLocked.into();
         }
         if close {
             self.close_when_done = self.task.is_some();
@@ -215,8 +215,12 @@ impl VaultApp {
     }
 
     fn login(&mut self, ui: &mut egui::Ui) {
+        let locale = self.locale;
         ui.horizontal(|ui| {
-            for (create, label) in [(false, "打开保险库"), (true, "创建新保险库")] {
+            for (create, label) in [
+                (false, locale.text(TextKey::OpenVault)),
+                (true, locale.text(TextKey::NewVaultTab)),
+            ] {
                 if ui
                     .add_sized(
                         [112.0, 28.0],
@@ -236,41 +240,41 @@ impl VaultApp {
         });
         ui.add_space(8.0);
         ui.heading(if self.form.create {
-            "创建保险库"
+            locale.text(TextKey::CreateVault)
         } else {
-            "解锁保险库"
+            locale.text(TextKey::UnlockVault)
         });
         theme::caption(
             ui,
             if self.form.create {
-                "选择一个新目录，设置你的保险库密码。"
+                locale.text(TextKey::CreateHint)
             } else {
-                "选择保险库，解锁后即可管理你的文件。"
+                locale.text(TextKey::UnlockHint)
             },
         );
         ui.add_space(6.0);
-        ui.label("保险库目录");
+        ui.label(locale.text(TextKey::VaultDirectory));
         ui.horizontal(|ui| {
             ui.allocate_ui_with_layout(
                 egui::vec2((ui.available_width() - 68.0).max(120.0), 28.0),
                 egui::Layout::top_down(egui::Align::Min),
-                |ui| self.form.path.ui(ui),
+                |ui| self.form.path.ui(ui, locale),
             );
             if ui
-                .button("浏览…")
-                .on_hover_text("新建时会在所选目录下追加“新保险库”")
+                .button(locale.text(TextKey::Browse))
+                .on_hover_text(locale.text(TextKey::BrowseHint))
                 .clicked()
             {
                 self.pick(Target::Vault, ui.ctx());
             }
         });
         if self.form.create {
-            theme::caption(ui, "填写尚不存在的目录；浏览时自动追加“新保险库”。");
+            theme::caption(ui, locale.text(TextKey::DirectoryHint));
         }
         ui.label(if !self.form.create && self.form.recovery {
-            "恢复密钥"
+            locale.text(TextKey::RecoveryKey)
         } else {
-            "密码"
+            locale.text(TextKey::Password)
         });
         ui.add(
             egui::TextEdit::singleline(&mut *self.form.phrase)
@@ -278,14 +282,14 @@ impl VaultApp {
                 .desired_width(f32::INFINITY)
                 .margin(egui::Margin::symmetric(8, 5))
                 .hint_text(if self.form.create {
-                    "设置保险库密码"
+                    locale.text(TextKey::SetPassword)
                 } else {
-                    "输入以解锁"
+                    locale.text(TextKey::EnterPassword)
                 })
                 .password(!self.form.show_password),
         );
         if self.form.create {
-            ui.label("确认密码");
+            ui.label(locale.text(TextKey::ConfirmPassword));
             ui.add(
                 egui::TextEdit::singleline(&mut *self.form.confirmation)
                     .char_limit(vault_core::crypto::PASSWORD_MAX)
@@ -295,17 +299,20 @@ impl VaultApp {
             );
         }
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.form.show_password, "显示输入");
+            ui.checkbox(
+                &mut self.form.show_password,
+                locale.text(TextKey::ShowInput),
+            );
             if !self.form.create {
-                ui.checkbox(&mut self.form.read_only, "只读打开");
+                ui.checkbox(&mut self.form.read_only, locale.text(TextKey::OpenReadOnly));
             }
         });
         ui.checkbox(
             &mut self.form.recovery,
             if self.form.create {
-                "同时生成恢复密钥"
+                locale.text(TextKey::GenerateRecovery)
             } else {
-                "使用恢复密钥解锁"
+                locale.text(TextKey::UnlockRecovery)
             },
         );
         ui.add_space(8.0);
@@ -313,9 +320,9 @@ impl VaultApp {
             .add_enabled(
                 !self.form.path.is_empty(),
                 theme::primary(if self.form.create {
-                    "创建保险库"
+                    locale.text(TextKey::CreateVault)
                 } else {
-                    "解锁保险库"
+                    locale.text(TextKey::UnlockVault)
                 })
                 .min_size(egui::vec2(ui.available_width(), 32.0)),
             )
@@ -329,11 +336,9 @@ impl VaultApp {
             match result {
                 Ok(task) => {
                     self.task = Some(task);
-                    self.notice.clear();
+                    self.notice = Message::Empty;
                 }
-                Err(error) => {
-                    self.notice = format!("输入或启动失败：{error}（创建时两次密码须一致）。")
-                }
+                Err(error) => self.notice = Message::Error(ErrorContext::Input, error),
             }
         }
     }
@@ -345,12 +350,12 @@ impl VaultApp {
         match Task::action(session, action, ctx.clone()) {
             Ok(task) => {
                 self.task = Some(task);
-                self.notice.clear();
+                self.notice = Message::Empty;
                 self.last_activity = Some(Instant::now());
             }
             Err(error) => {
                 self.lock(ctx);
-                self.notice = format!("任务未启动，会话已锁定：{error}");
+                self.notice = Message::Error(ErrorContext::Task, error);
             }
         }
     }
@@ -358,24 +363,27 @@ impl VaultApp {
     fn pick(&mut self, target: Target, ctx: &egui::Context) {
         match Picker::start(target, ctx.clone()) {
             Ok(picker) => self.picker = Some(picker),
-            Err(error) => self.notice = format!("无法启动选择器：{error}；可手填路径。"),
+            Err(error) => self.notice = Message::Error(ErrorContext::Picker, error),
         }
     }
 
     fn browse(&mut self, ui: &mut egui::Ui) -> Option<Action> {
+        let locale = self.locale;
         let session = self.session.as_mut().expect("unlocked session");
         if let Some(recovery) = &mut session.recovery {
             let mut saved = false;
             theme::card().show(ui, |ui| {
-                ui.heading("保存你的恢复密钥");
-                ui.label("恢复密钥仅在此显示一次，请独立保存；它不替代数据备份。");
+                ui.heading(locale.text(TextKey::SaveRecovery));
+                ui.label(locale.text(TextKey::RecoveryWarning));
                 let mut text = recovery.as_str();
                 ui.add(
                     egui::TextEdit::singleline(&mut text)
                         .desired_width(f32::INFINITY)
                         .margin(egui::Margin::symmetric(8, 5)),
                 );
-                saved = ui.add(theme::primary("已独立保存，继续")).clicked();
+                saved = ui
+                    .add(theme::primary(locale.text(TextKey::RecoverySaved)))
+                    .clicked();
             });
             if saved {
                 session.recovery = None;
@@ -392,10 +400,10 @@ impl VaultApp {
                 egui::ScrollArea::vertical()
                     .id_salt("actions-scroll")
                     .show(ui, |ui| {
-                        ui.heading("文件详情");
+                        ui.heading(locale.text(TextKey::FileDetails));
                         ui.add_space(8.0);
                         self.editor
-                            .ui(ui, &session.vault, &self.browser, &mut picker)
+                            .ui(ui, &session.vault, &self.browser, &mut picker, locale)
                     })
                     .inner
             })
@@ -406,9 +414,12 @@ impl VaultApp {
                 .resizable(false)
                 .frame(egui::Frame::new().fill(theme::DEEP).inner_margin(12))
                 .show(ui, |ui| {
-                    ui.heading("保险库");
+                    ui.heading(locale.text(TextKey::Vault));
                     ui.add_space(8.0);
-                    for (trash, label) in [(false, "全部文件"), (true, "回收站")] {
+                    for (trash, label) in [
+                        (false, locale.text(TextKey::AllFiles)),
+                        (true, locale.text(TextKey::Trash)),
+                    ] {
                         if ui
                             .add_sized(
                                 [144.0, 30.0],
@@ -427,12 +438,12 @@ impl VaultApp {
                     theme::caption(
                         ui,
                         if session.vault.is_writable() {
-                            "可读写会话"
+                            locale.text(TextKey::WritableSession)
                         } else {
-                            "只读会话"
+                            locale.text(TextKey::ReadOnlySession)
                         },
                     );
-                    theme::caption(ui, "本地加密存储");
+                    theme::caption(ui, locale.text(TextKey::LocalEncrypted));
                 });
         }
         egui::CentralPanel::default()
@@ -440,12 +451,15 @@ impl VaultApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading(if self.browser.trash {
-                        "回收站"
+                        locale.text(TextKey::Trash)
                     } else {
-                        "我的文件"
+                        locale.text(TextKey::MyFiles)
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.selectable_label(self.browser.trash, "回收站").clicked() {
+                        if ui
+                            .selectable_label(self.browser.trash, locale.text(TextKey::Trash))
+                            .clicked()
+                        {
                             self.browser = Browser {
                                 trash: !self.browser.trash,
                                 ..Default::default()
@@ -456,12 +470,15 @@ impl VaultApp {
                 if !session.vault.issues().is_empty() {
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
-                        "检测到不完整或损坏引用，请检查后恢复。",
+                        locale.text(TextKey::DamagedReferences),
                     );
                 }
                 ui.horizontal(|ui| {
                     if ui
-                        .add_enabled(!self.browser.trash, egui::Button::new("根目录"))
+                        .add_enabled(
+                            !self.browser.trash,
+                            egui::Button::new(locale.text(TextKey::Root)),
+                        )
                         .clicked()
                     {
                         self.browser.parent = None;
@@ -471,7 +488,7 @@ impl VaultApp {
                     if ui
                         .add_enabled(
                             !self.browser.trash && self.browser.parent.is_some(),
-                            egui::Button::new("上一级"),
+                            egui::Button::new(locale.text(TextKey::Up)),
                         )
                         .clicked()
                     {
@@ -488,14 +505,16 @@ impl VaultApp {
                             self.browser
                                 .parent
                                 .and_then(|id| session.vault.entry(id))
-                                .map_or("全部文件", |entry| entry.name.as_str()),
+                                .map_or(locale.text(TextKey::AllFiles), |entry| {
+                                    entry.name.as_str()
+                                }),
                         )
                         .truncate(),
                     );
                 });
                 ui.add(
                     egui::TextEdit::singleline(&mut *self.browser.query)
-                        .hint_text("搜索保险库中的全部名称…")
+                        .hint_text(locale.text(TextKey::SearchHint))
                         .desired_width(f32::INFINITY)
                         .margin(egui::Margin::symmetric(8, 5)),
                 );
@@ -508,27 +527,27 @@ impl VaultApp {
                             || entry.parent == self.browser.parent
                     })
                     .collect();
-                theme::caption(ui, &format!("{} 个项目 · 双击目录进入", entries.len()));
+                theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
                 if entries.is_empty() {
                     ui.add_space(32.0);
                     ui.vertical_centered(|ui| {
                         ui.label(
                             egui::RichText::new(if !self.browser.query.is_empty() {
-                                "没有找到匹配的文件"
+                                locale.text(TextKey::NoMatches)
                             } else if self.browser.trash {
-                                "回收站是空的"
+                                locale.text(TextKey::EmptyTrash)
                             } else {
-                                "这里还没有文件"
+                                locale.text(TextKey::NoFiles)
                             })
                             .text_style(egui::TextStyle::Heading),
                         );
                         theme::caption(
                             ui,
                             if self.browser.query.is_empty() && !self.browser.trash {
-                                "在右侧展开“导入与新建”以添加文件。"
+                                locale.text(TextKey::AddFilesHint)
                             } else {
-                                "可以切换目录，或调整搜索内容。"
+                                locale.text(TextKey::SearchAdjustHint)
                             },
                         );
                     });
@@ -541,8 +560,12 @@ impl VaultApp {
                             ui.horizontal(|ui| {
                                 ui.set_min_height(32.0);
                                 let (kind, size) = match entry.kind {
-                                    EntryKind::Directory => ("目录", "—".into()),
-                                    EntryKind::File { length, .. } => ("文件", theme::size(length)),
+                                    EntryKind::Directory => {
+                                        (locale.text(TextKey::Directory), "—".into())
+                                    }
+                                    EntryKind::File { length, .. } => {
+                                        (locale.text(TextKey::File), theme::size(length))
+                                    }
                                 };
                                 let width = (ui.available_width() - 104.0).max(80.0);
                                 let response = ui.add_sized(
@@ -569,7 +592,10 @@ impl VaultApp {
                                 response.on_hover_text(&entry.name);
                                 if matches!(entry.kind, EntryKind::Directory) && !self.browser.trash
                                 {
-                                    if ui.small_button("打开目录").clicked() {
+                                    if ui
+                                        .small_button(locale.text(TextKey::OpenDirectory))
+                                        .clicked()
+                                    {
                                         self.browser.parent = Some(entry.id);
                                         self.browser.selected = None;
                                         self.browser.query = Zeroizing::default();
@@ -601,6 +627,7 @@ impl eframe::App for VaultApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let locale = self.locale;
         let ctx = ui.ctx().clone();
         if ctx.input(|input| !input.events.is_empty()) {
             self.last_activity = Some(Instant::now());
@@ -614,21 +641,32 @@ impl eframe::App for VaultApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     theme::brand(ui);
+                    egui::ComboBox::from_id_salt("language")
+                        .selected_text(self.locale.code())
+                        .width(88.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.locale, Locale::ZhCn, "简体中文");
+                            ui.selectable_value(&mut self.locale, Locale::EnUs, "English");
+                        });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("退出").on_hover_text("Ctrl+Q").clicked() {
+                        if ui
+                            .button(locale.text(TextKey::Exit))
+                            .on_hover_text("Ctrl+Q")
+                            .clicked()
+                        {
                             self.tick(&ctx, Instant::now(), true, true);
                         }
                         if (self.session.is_some() || self.task.is_some() || self.picker.is_some())
-                            && ui.button("锁定 / 取消").clicked()
+                            && ui.button(locale.text(TextKey::LockCancel)).clicked()
                         {
                             self.lock(&ctx);
                         }
                         theme::caption(
                             ui,
                             if self.session.is_some() {
-                                "已解锁"
+                                locale.text(TextKey::Unlocked)
                             } else {
-                                "已锁定"
+                                locale.text(TextKey::Locked)
                             },
                         );
                     });
@@ -643,48 +681,65 @@ impl eframe::App for VaultApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("实验版本")
+                        egui::RichText::new(locale.text(TextKey::Experimental))
                             .size(12.0)
                             .color(theme::MUTED),
                     )
-                    .on_hover_text("格式未稳定，未经独立安全审计，仅使用可丢弃测试数据。");
+                    .on_hover_text(locale.text(TextKey::ExperimentalWarning));
                     if self.picker.is_some() {
-                        theme::caption(ui, "等待系统选择器；锁定可丢弃选择结果。");
-                    } else if !self.notice.is_empty() {
-                        ui.label(&self.notice);
+                        theme::caption(ui, locale.text(TextKey::WaitingPicker));
+                    } else if !matches!(self.notice, Message::Empty) {
+                        ui.label(self.notice.render(self.locale));
                     } else {
-                        theme::caption(ui, "空闲 5 分钟自动锁定");
+                        theme::caption(ui, locale.text(TextKey::AutoLock));
                     }
                 });
             });
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BACKGROUND)).show(ui, |ui| {
-            if let Some(task) = &self.task {
-                egui::Frame::new().inner_margin(24).show(ui, |ui| {
-                    ui.heading("正在处理");
-                    if let Some(progress) = task.progress().filter(|progress| progress.total > 0) {
-                        ui.add(egui::ProgressBar::new(progress.processed as f32 / progress.total as f32)
-                            .animate(false).text(format!("{} / {}", theme::size(progress.processed), theme::size(progress.total))));
-                    }
-                    ui.label("取消或关闭会等待任务安全结束；已提交操作不会回滚。密码计算不能立即中断。");
-                });
-            } else if self.session.is_some() {
-                let action = ui.add_enabled_ui(self.picker.is_none(), |ui| self.browse(ui)).inner;
-                if let Some(action) = action { self.start_action(action, &ctx); }
-            } else if !self.close_when_done {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add_space(32.0);
-                    let width = ui.available_width();
-                    ui.horizontal(|ui| {
-                        ui.add_space(((width - 400.0) / 2.0).max(16.0));
-                        ui.vertical(|ui| {
-                            ui.set_width(400.0_f32.min((width - 32.0).max(240.0)));
-                            ui.add_enabled_ui(self.picker.is_none(), |ui| self.login(ui));
-                        });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(theme::BACKGROUND))
+            .show(ui, |ui| {
+                if let Some(task) = &self.task {
+                    egui::Frame::new().inner_margin(24).show(ui, |ui| {
+                        ui.heading(locale.text(TextKey::Working));
+                        if let Some(progress) =
+                            task.progress().filter(|progress| progress.total > 0)
+                        {
+                            ui.add(
+                                egui::ProgressBar::new(
+                                    progress.processed as f32 / progress.total as f32,
+                                )
+                                .animate(false)
+                                .text(format!(
+                                    "{} / {}",
+                                    theme::size(progress.processed),
+                                    theme::size(progress.total)
+                                )),
+                            );
+                        }
+                        ui.label(locale.text(TextKey::CancelWarning));
                     });
-                    ui.add_space(24.0);
-                });
-            }
-        });
+                } else if self.session.is_some() {
+                    let action = ui
+                        .add_enabled_ui(self.picker.is_none(), |ui| self.browse(ui))
+                        .inner;
+                    if let Some(action) = action {
+                        self.start_action(action, &ctx);
+                    }
+                } else if !self.close_when_done {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.add_space(32.0);
+                        let width = ui.available_width();
+                        ui.horizontal(|ui| {
+                            ui.add_space(((width - 400.0) / 2.0).max(16.0));
+                            ui.vertical(|ui| {
+                                ui.set_width(400.0_f32.min((width - 32.0).max(240.0)));
+                                ui.add_enabled_ui(self.picker.is_none(), |ui| self.login(ui));
+                            });
+                        });
+                        ui.add_space(24.0);
+                    });
+                }
+            });
     }
 }
 

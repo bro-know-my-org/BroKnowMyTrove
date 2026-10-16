@@ -10,6 +10,7 @@ use vault_core::{
     crypto::{Password, RecoveryKey},
     operation::{Operation, Progress},
 };
+use vault_i18n::Message;
 use zeroize::Zeroizing;
 
 pub enum Request {
@@ -47,7 +48,7 @@ impl Request {
 
 pub struct Completion {
     pub session: Option<Session>,
-    pub result: Result<String>,
+    pub result: Result<Message>,
 }
 
 /// A single worker owns all disk/KDF work. Dropping a task cancels, then joins it.
@@ -63,7 +64,7 @@ impl Task {
         Self::spawn(ctx, move |operation| match request.run(path, operation) {
             Ok(session) => Completion {
                 session: Some(session),
-                result: Ok(String::new()),
+                result: Ok(Message::Empty),
             },
             Err(error) => Completion {
                 session: None,

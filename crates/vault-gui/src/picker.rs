@@ -1,7 +1,11 @@
 use eframe::egui;
 use std::{path::PathBuf, sync::mpsc, thread};
 use vault_core::Result;
+use vault_i18n::{Locale, TextKey};
 use zeroize::Zeroizing;
+
+/// A filesystem component, independent of the current display language.
+pub const NEW_VAULT_DIRECTORY: &str = "新保险库";
 
 /// Preserve native paths even when their display text is not lossless UTF-8.
 #[derive(Default)]
@@ -41,16 +45,59 @@ mod tests {
         input.set(original.clone());
         assert_eq!(input.path(), original);
     }
+
+    #[test]
+    fn language_changes_while_picking_do_not_change_the_destination() {
+        for (before, after) in [(Locale::ZhCn, Locale::EnUs), (Locale::EnUs, Locale::ZhCn)] {
+            for create in [false, true] {
+                let (sender, receiver) = mpsc::sync_channel(1);
+                let mut app = crate::VaultApp {
+                    locale: before,
+                    form: crate::Form {
+                        create,
+                        ..Default::default()
+                    },
+                    picker: Some(Picker {
+                        target: Target::Vault,
+                        receiver,
+                    }),
+                    ..Default::default()
+                };
+                app.locale = after;
+                let parent = PathBuf::from("selected-parent");
+                sender.send(Some(parent.clone())).unwrap();
+                app.poll(&egui::Context::default());
+                assert_eq!(
+                    app.form.path.path(),
+                    if create {
+                        parent.join(NEW_VAULT_DIRECTORY)
+                    } else {
+                        parent
+                    }
+                );
+                assert!(
+                    after
+                        .text(TextKey::BrowseHint)
+                        .contains(NEW_VAULT_DIRECTORY)
+                );
+                assert!(
+                    after
+                        .text(TextKey::DirectoryHint)
+                        .contains(NEW_VAULT_DIRECTORY)
+                );
+            }
+        }
+    }
 }
 
 impl PathInput {
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, locale: Locale) {
         if ui
             .add(
                 egui::TextEdit::singleline(&mut *self.text)
                     .desired_width(f32::INFINITY)
                     .margin(egui::Margin::symmetric(10, 8))
-                    .hint_text("输入路径或浏览选择…"),
+                    .hint_text(locale.text(TextKey::PathHint)),
             )
             .changed()
         {
