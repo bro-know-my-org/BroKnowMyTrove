@@ -30,7 +30,7 @@ class ManagementTests(unittest.TestCase):
         source = self.root / "source"
         source.write_bytes(bytes(range(256)) * 4097)
         identity = self.call("import", source, "回收的文件")[0].strip()
-        self.call("trash", identity)
+        self.call("trash", identity, "--confirm")
         backup, restored = self.root / "backup", self.root / "restored"
         report = json.loads(self.call("backup", backup, "--json")[0])
         self.assertEqual(report["verification"], "full")
@@ -94,6 +94,22 @@ class ManagementTests(unittest.TestCase):
                 result = subprocess.run([CLI, name, str(self.vault), *extra],
                                         capture_output=True, start_new_session=True, timeout=10)
                 self.assertEqual(result.returncode, 2)
+
+    def test_destructive_commands_and_batch_preflight_require_confirmation(self):
+        identity = "00000000000000000000000000000001"
+        for command in [["replace", identity, "source"], ["trash", identity]]:
+            result = subprocess.run([CLI, command[0], str(self.vault), *command[1:]],
+                                    capture_output=True, start_new_session=True, timeout=10)
+            self.assertEqual(result.returncode, 2)
+        self.call("create", confirm=True)
+        plan = self.root / "plan.jsonl"
+        for command in [["replace", identity, "source"], ["trash", identity]]:
+            plan.write_text(json.dumps(["mkdir", "must not commit"]) + "\n" + json.dumps(command) + "\n")
+            result = subprocess.run([CLI, "batch", str(self.vault), str(plan)],
+                                    capture_output=True, start_new_session=True, timeout=10)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("批量输入第 2 行无效；未执行任何操作。".encode(), result.stderr)
+        self.assertEqual(self.call("list")[0].strip(), "")
 
     def test_recovery_display_failure_reports_update_and_password_still_works(self):
         self.call("create", confirm=True)

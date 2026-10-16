@@ -150,7 +150,8 @@ pub fn command(locale: Locale) -> Command {
         .subcommand(
             vault_command("replace", locale.text(TextKey::ReplaceHelp))
                 .arg(id())
-                .arg(path("source")),
+                .arg(path("source"))
+                .arg(flag("confirm", locale.text(TextKey::ConfirmReplace)).required(true)),
         )
         .subcommand(
             readable("export", locale.text(TextKey::ExportHelp))
@@ -167,7 +168,11 @@ pub fn command(locale: Locale) -> Command {
                 .arg(id())
                 .arg(parent()),
         )
-        .subcommand(vault_command("trash", locale.text(TextKey::TrashHelp)).arg(id()))
+        .subcommand(
+            vault_command("trash", locale.text(TextKey::TrashHelp))
+                .arg(id())
+                .arg(flag("confirm", locale.text(TextKey::ConfirmTrash)).required(true)),
+        )
         .subcommand(vault_command("restore", locale.text(TextKey::RestoreHelp)).arg(id()))
         .subcommand(
             vault_command("empty-trash", locale.text(TextKey::EmptyTrashHelp)).arg(
