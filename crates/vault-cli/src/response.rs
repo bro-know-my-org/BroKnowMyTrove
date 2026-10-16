@@ -6,8 +6,8 @@ use std::{
     time::Duration,
 };
 use vault_core::{
-    CleanupReport, ContentReport, Entry, EntryKind, Error, Id, Inspection, Issue, Result,
-    StorageUsage,
+    BackupReport, BackupVerification, CleanupReport, ContentReport, Entry, EntryKind, Error, Id,
+    Inspection, Issue, Result, StorageUsage,
 };
 use vault_i18n::{Locale, TextKey};
 
@@ -20,6 +20,7 @@ pub enum Response<'a> {
     Space(StorageUsage),
     Content(ContentReport),
     Cleanup(CleanupReport),
+    Backup(BackupReport),
 }
 
 pub fn diagnostic(message: &str) {
@@ -103,6 +104,17 @@ impl Response<'_> {
                 "removed_temporary_bytes": report.removed_temporary_bytes,
                 "failure": report.failure.as_ref().map(ToString::to_string),
             }),
+            Self::Backup(report) => json!({
+                "commit": report.commit.to_string(),
+                "copied_files": report.copied_files,
+                "ciphertext_bytes": report.ciphertext_bytes,
+                "verification": match report.verification {
+                    BackupVerification::Copy => "copy",
+                    BackupVerification::Full => "full",
+                },
+                "verified_objects": report.verified_objects,
+                "publication_failure": report.publication_failure.as_ref().map(ToString::to_string),
+            }),
         }
     }
 
@@ -117,6 +129,12 @@ impl Response<'_> {
                     diagnostic(locale.text(TextKey::CleanupFailed));
                 }
                 report.failure.map_or(Ok(()), Err)
+            }
+            Self::Backup(report) => {
+                if report.publication_failure.is_some() {
+                    diagnostic(locale.text(TextKey::BackupUncertain));
+                }
+                report.publication_failure.map_or(Ok(()), Err)
             }
             _ => Ok(()),
         }
@@ -201,6 +219,7 @@ impl Response<'_> {
                 Ok(())
             }
             Self::Cleanup(report) => output(&locale.cleanup(report)),
+            Self::Backup(report) => output(&locale.backup(report)),
         }
     }
 }
@@ -233,4 +252,42 @@ fn issue(issue: &Issue) -> Value {
         Issue::DamagedObject(id) => ("damaged_object", Some(id)),
     };
     json!({"kind": kind, "id": id.map(ToString::to_string)})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(failure: Option<Error>) -> BackupReport {
+        BackupReport {
+            commit: "00000000000000000000000000000001".parse().unwrap(),
+            copied_files: 7,
+            ciphertext_bytes: 4096,
+            verification: BackupVerification::Copy,
+            verified_objects: 0,
+            publication_failure: failure,
+        }
+    }
+
+    #[test]
+    fn published_copy_failure_preserves_report_and_failing_exit() {
+        let (zh, result) =
+            Response::Backup(report(Some(Error::Io(io::ErrorKind::Other)))).into_json(Locale::ZhCn);
+        assert!(result.is_err());
+        assert_eq!(zh["verification"], "copy");
+        assert_eq!(zh["verified_objects"], 0);
+        assert!(zh["publication_failure"].is_string());
+        let (en, result) =
+            Response::Backup(report(Some(Error::Io(io::ErrorKind::Other)))).into_json(Locale::EnUs);
+        assert!(result.is_err());
+        assert_eq!(zh, en);
+        let (value, result) = Response::Backup(report(None)).into_json(Locale::EnUs);
+        assert!(result.is_ok());
+        assert!(value["publication_failure"].is_null());
+        assert!(
+            Locale::EnUs
+                .backup(&report(None))
+                .contains("contents not authenticated")
+        );
+    }
 }

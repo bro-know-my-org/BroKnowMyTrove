@@ -213,6 +213,11 @@ texts! {
     SpaceHelp: "显示密文对象空间，单位字节", "Show encrypted object storage usage in bytes";
     InspectHelp: "认证提交图并检查当前元数据及引用", "Authenticate the commit graph and inspect current metadata and references";
     CheckHelp: "逐对象完整认证全部内容", "Fully authenticate all contents object by object";
+    BackupHelp: "一致性密文备份到新目录，含回收站，不保留历史恢复快照", "Back up ciphertext to a new directory, including trash but excluding historical snapshots";
+    RestoreVaultHelp: "从密文备份恢复整库到新目录，不覆盖现有保险库", "Restore a ciphertext backup to a new vault directory; never overwrite an existing vault";
+    BackupDestinationHelp: "尚不存在的目标目录，父目录必须存在", "New destination directory; its parent must exist";
+    VerificationHelp: "full（默认）认证全部内容；copy 只比较密文并认证元数据", "full (default) authenticates all contents; copy compares ciphertext and authenticates metadata only";
+    BackupUncertain: "完整副本已发布，但目录持久性不确定；保留目标并重新打开检查，不要当作完全成功。", "Complete copy published, but directory durability is uncertain. Keep the destination and reopen it for inspection; do not treat this as full success.";
     BatchHelp: "单次解锁顺序执行 JSON Lines；失败即停，已完成操作不回滚", "Execute JSON Lines sequentially after one unlock; stop on failure without rolling back completed operations";
     BatchInputHelp: "命令文件；- 从数据 stdin 读取，最多 1 MiB / 1000 条", "Command file; - reads data stdin, up to 1 MiB / 1000 commands";
     RecoveryDisplayFailed: "保险库已创建，但恢复密钥显示失败；仍可使用密码打开保险库。", "Vault created, but recovery key display failed; the password can still open the vault.";

@@ -1,5 +1,7 @@
 use crate::{Locale, TextKey};
-use vault_core::{CleanupReport, ContentReport, Error, StorageUsage};
+use vault_core::{
+    BackupReport, BackupVerification, CleanupReport, ContentReport, Error, StorageUsage,
+};
 
 pub enum ErrorContext {
     Operation,
@@ -89,6 +91,33 @@ impl Message {
 }
 
 impl Locale {
+    pub fn backup(self, report: &BackupReport) -> String {
+        let mode = match report.verification {
+            BackupVerification::Copy => bilingual!(
+                self,
+                "密文复制校验和元数据认证（未认证文件内容）",
+                "ciphertext copy and metadata verification (contents not authenticated)"
+            ),
+            BackupVerification::Full => {
+                bilingual!(self, "完整内容认证", "full content authentication")
+            }
+        };
+        let summary = bilingual!(
+            self,
+            "密文副本：{} 个文件、{} 字节；{}；认证 {} 个内容对象。",
+            "Ciphertext copy: {} files, {} bytes; {}; {} content objects authenticated.",
+            report.copied_files,
+            report.ciphertext_bytes,
+            mode,
+            report.verified_objects
+        );
+        if report.publication_failure.is_some() {
+            format!("{summary}\n{}", self.text(TextKey::BackupUncertain))
+        } else {
+            summary
+        }
+    }
+
     pub fn cleanup(self, report: &CleanupReport) -> String {
         let locale = self;
         bilingual!(

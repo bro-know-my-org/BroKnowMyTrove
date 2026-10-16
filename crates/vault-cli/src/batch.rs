@@ -105,7 +105,13 @@ pub fn run(args: &ArgMatches, operation: &Operation, locale: Locale) -> Result<(
     } else {
         OpenMode::ReadWrite
     };
-    let mut vault = commands::open(args, commands::get::<PathBuf>(args, "vault"), mode, locale)?;
+    let mut vault = commands::open(
+        args,
+        commands::get::<PathBuf>(args, "vault"),
+        mode,
+        locale,
+        operation,
+    )?;
     for (index, matches) in plan.iter().enumerate() {
         let (name, args) = matches.subcommand().ok_or(Error::InvalidInput)?;
         let (data, result) = match commands::execute(name, args, &mut vault, operation) {
@@ -185,6 +191,8 @@ mod tests {
             "{}",
             "[\"batch\"]",
             "[\"create\"]",
+            "[\"backup\",\"target\"]",
+            "[\"restore-vault\",\"target\"]",
             "[\"inspect\"]",
             "[\"list\",\"--help\"]",
             "[\"gc\"]",

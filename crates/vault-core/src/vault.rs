@@ -82,7 +82,9 @@ impl Vault {
         Self::open_with_operation(path, credential, mode, &Operation::default())
     }
 
-    pub(crate) fn open_with_operation(
+    /// Opens with cancellation during metadata scanning; password derivation itself
+    /// cannot be interrupted. Uses the same credential and lock rules as `open`.
+    pub fn open_with_operation(
         path: &Path,
         credential: Credential<'_>,
         mode: OpenMode,

@@ -3,7 +3,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use std::path::{Path, PathBuf};
 use vault_cli::password;
 use vault_core::{
-    CreateOptions, Credential, Error, Id, OpenMode, Result, Vault, operation::Operation,
+    BackupVerification, CreateOptions, Credential, Error, Id, OpenMode, Result, Vault,
+    operation::Operation,
 };
 use vault_i18n::{Locale, TextKey};
 
@@ -191,6 +192,24 @@ pub fn command(locale: Locale) -> Command {
         .subcommand(readable("space", locale.text(TextKey::SpaceHelp)))
         .subcommand(vault_command("inspect", locale.text(TextKey::InspectHelp)))
         .subcommand(readable("check", locale.text(TextKey::CheckHelp)))
+        .subcommands(["backup", "restore-vault"].map(|name| {
+            vault_command(
+                name,
+                locale.text(if name == "backup" {
+                    TextKey::BackupHelp
+                } else {
+                    TextKey::RestoreVaultHelp
+                }),
+            )
+            .arg(path("destination").help(locale.text(TextKey::BackupDestinationHelp)))
+            .arg(
+                Arg::new("verification")
+                    .long("verification")
+                    .value_parser(["copy", "full"])
+                    .default_value("full")
+                    .help(locale.text(TextKey::VerificationHelp)),
+            )
+        }))
         .subcommand(
             readable("batch", locale.text(TextKey::BatchHelp))
                 .arg(path("input").help(locale.text(TextKey::BatchInputHelp))),
@@ -215,6 +234,8 @@ pub fn command(locale: Locale) -> Command {
                     "space",
                     "inspect",
                     "check",
+                    "backup",
+                    "restore-vault",
                     "batch",
                     "help",
                 ])),
@@ -235,14 +256,15 @@ pub(crate) fn open(
     path: &Path,
     mode: OpenMode,
     locale: Locale,
+    operation: &Operation,
 ) -> Result<Vault> {
     // Credentials leave scope immediately after unlock, before long file operations.
     if args.get_flag("recovery-key") {
         let key = password::read_recovery_in(locale)?;
-        Vault::open(path, Credential::Recovery(&key), mode)
+        Vault::open_with_operation(path, Credential::Recovery(&key), mode, operation)
     } else {
         let key = password::read_password_in(false, locale)?;
-        Vault::open(path, Credential::Password(&key), mode)
+        Vault::open_with_operation(path, Credential::Password(&key), mode, operation)
     }
 }
 
@@ -286,6 +308,16 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
         };
         return Response::Inspection(report).print(args.get_flag("json"), false, locale);
     }
+    if matches!(name, "backup" | "restore-vault") {
+        let vault = open(args, path, OpenMode::ReadOnly, locale, operation)?;
+        let verification = match get::<String>(args, "verification").as_str() {
+            "copy" => BackupVerification::Copy,
+            _ => BackupVerification::Full,
+        };
+        let report =
+            vault.backup_to(get::<PathBuf>(args, "destination"), verification, operation)?;
+        return Response::Backup(report).print(args.get_flag("json"), true, locale);
+    }
     let mode = if readonly(name) {
         args.get_one::<Id>("commit")
             .copied()
@@ -293,7 +325,7 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
     } else {
         OpenMode::ReadWrite
     };
-    let mut vault = open(args, path, mode, locale)?;
+    let mut vault = open(args, path, mode, locale, operation)?;
     execute(name, args, &mut vault, operation)?.print(
         args.get_flag("json"),
         !readonly(name) || name == "export",
@@ -375,6 +407,32 @@ pub(crate) fn execute<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backup_commands_default_to_full_and_never_select_history() {
+        for name in ["backup", "restore-vault"] {
+            for locale in [Locale::ZhCn, Locale::EnUs] {
+                let matches = command(locale)
+                    .try_get_matches_from(["bkm", name, "source", "new-target", "--json"])
+                    .unwrap();
+                let args = matches.subcommand().unwrap().1;
+                assert_eq!(get::<String>(args, "verification"), "full");
+                assert!(args.get_flag("json"));
+                assert!(
+                    command(locale)
+                        .try_get_matches_from([
+                            "bkm",
+                            name,
+                            "source",
+                            "new-target",
+                            "--commit",
+                            "00000000000000000000000000000001"
+                        ])
+                        .is_err()
+                );
+            }
+        }
+    }
 
     #[test]
     fn language_selection_precedes_help_and_respects_positional_terminator() {
