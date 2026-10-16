@@ -17,6 +17,10 @@ mod tree;
 mod vault;
 
 #[cfg(test)]
+mod m6_bench;
+#[cfg(test)]
+mod m6_tests;
+#[cfg(test)]
 mod recovery_tests;
 
 pub use backup::{BackupReport, BackupVerification};

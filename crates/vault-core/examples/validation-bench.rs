@@ -22,12 +22,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = args.next().ok_or("expected scratch parent directory")?;
     let mib: u64 = args
         .next()
-        .ok_or("expected file size in MiB, 8..=1024")?
+        .ok_or("expected file size in MiB, 8..=102400")?
         .to_str()
         .ok_or("non UTF-8 size")?
         .parse()?;
-    if !(8..=1024).contains(&mib) {
-        return Err("size must be 8..=1024 MiB".into());
+    if !(8..=102400).contains(&mib) || args.next().is_some() {
+        return Err("expected scratch parent and size 8..=102400 MiB only".into());
     }
     let length = mib * 1024 * 1024;
     if vault_platform::capacity(std::path::Path::new(&root))?.available
@@ -35,6 +35,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("insufficient scratch capacity".into());
     }
+    eprintln!(
+        "baseline: {mib} MiB, needs about {} MiB disposable storage",
+        mib * 3 + 64
+    );
     let temp = tempfile::Builder::new()
         .prefix("bkm-bench-")
         .tempdir_in(root)?;
@@ -46,6 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     file.sync_all()?;
     drop(file);
+    eprintln!("baseline: source generated and synced");
     let output = temp.path().join("output");
     let started = Instant::now();
     let mut input = fs::File::open(&source)?;
@@ -62,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(copied);
     drop(input);
     let io_seconds = started.elapsed().as_secs_f64();
+    eprintln!("baseline: plain copy complete");
     fs::remove_file(&output)?;
 
     let password = Password::new("disposable benchmark 中文 café".into())?;
@@ -81,9 +87,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let started = Instant::now();
     let id = vault.import_file(None, "payload", &source, &Operation::default())?;
     let import_seconds = started.elapsed().as_secs_f64();
+    eprintln!("baseline: import complete");
     let started = Instant::now();
     vault.export_file(id, &output, &Operation::default())?;
     let export_seconds = started.elapsed().as_secs_f64();
+    eprintln!("baseline: export complete, comparing bytes");
     // Independent streaming byte comparison; do not load the GiB sample into RAM.
     let mut left = fs::File::open(&source)?;
     let mut right = fs::File::open(&output)?;
