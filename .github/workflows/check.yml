@@ -30,6 +30,7 @@ jobs:
           cargo build --locked -p vault-cli --example password-probe
           python3 scripts/test-terminal.py target/debug/examples/password-probe
           python3 scripts/test-cli.py target/debug/bkm
+          python3 scripts/test-management.py target/debug/bkm
       - name: Install GUI build dependencies
         run: |
           sudo apt-get update
