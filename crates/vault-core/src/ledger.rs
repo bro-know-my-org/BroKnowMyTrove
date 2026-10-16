@@ -2,6 +2,7 @@ use crate::{
     Id, Result,
     codec::{self, COMMIT_LIMIT},
     crypto::Secret,
+    operation::{Operation, Point},
     store::{Kind, Store},
 };
 use serde::{Deserialize, Serialize};
@@ -48,13 +49,23 @@ pub(crate) struct Ledger {
 }
 
 pub(crate) fn scan(store: &Store, master: &Secret, vault: Id) -> Result<Ledger> {
+    scan_with_operation(store, master, vault, &Operation::default())
+}
+
+pub(crate) fn scan_with_operation(
+    store: &Store,
+    master: &Secret,
+    vault: Id,
+    operation: &Operation,
+) -> Result<Ledger> {
+    operation.check()?;
     let mut report = Inspection::default();
-    if store.unexpected_root_entry()? {
+    if store.unexpected_root_entry(operation)? {
         report.issues.push(Issue::UnexpectedPhysicalEntry);
     }
-    let inventory = store.inventory(Kind::Commit)?;
+    let inventory = store.inventory_with_operation(Kind::Commit, operation)?;
     for kind in [Kind::Object, Kind::Snapshot, Kind::Commit] {
-        let listing = store.inventory(kind)?;
+        let listing = store.inventory_with_operation(kind, operation)?;
         if listing.unexpected {
             report.issues.push(Issue::UnexpectedPhysicalEntry);
         }
@@ -63,11 +74,14 @@ pub(crate) fn scan(store: &Store, master: &Secret, vault: Id) -> Result<Ledger> 
     let key = master.derive(b"BKMCOMM1")?;
     let mut records = BTreeMap::new();
     for id in inventory.ids {
+        operation.check()?;
         let opened = store
             .read(Kind::Commit, id, COMMIT_LIMIT)
             .and_then(|bytes| {
                 codec::unseal_json::<Commit>(&key, &codec::aad(2, vault, id), &bytes, COMMIT_LIMIT)
             });
+        operation.checkpoint(Point::CommitRead)?;
+        operation.check()?;
         match opened {
             Ok(record) => {
                 records.insert(id, record);
@@ -79,6 +93,7 @@ pub(crate) fn scan(store: &Store, master: &Secret, vault: Id) -> Result<Ledger> 
     let mut invalid = records.is_empty();
     let mut children = HashMap::<Id, usize>::new();
     for (id, record) in &records {
+        operation.check()?;
         match record.parent {
             Some(parent) => {
                 *children.entry(parent).or_default() += 1;
@@ -105,11 +120,13 @@ pub(crate) fn scan(store: &Store, master: &Secret, vault: Id) -> Result<Ledger> 
             snapshot_present,
         });
     }
-    let leaves: Vec<_> = records
-        .keys()
-        .filter(|id| !children.contains_key(id))
-        .copied()
-        .collect();
+    let mut leaves = Vec::new();
+    for id in records.keys() {
+        operation.check()?;
+        if !children.contains_key(id) {
+            leaves.push(*id);
+        }
+    }
     if invalid || roots != 1 || leaves.len() != 1 || children.values().any(|count| *count > 1) {
         report.issues.push(Issue::InvalidCommitGraph);
     }
@@ -128,6 +145,7 @@ pub(crate) fn scan(store: &Store, master: &Secret, vault: Id) -> Result<Ledger> 
         }
     }
     report.commits.sort_by_key(|record| record.sequence);
+    operation.check()?;
     Ok(Ledger { report, records })
 }
 

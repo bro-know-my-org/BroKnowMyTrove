@@ -76,13 +76,22 @@ impl Vault {
     }
 
     pub fn open(path: &Path, credential: Credential<'_>, mode: OpenMode) -> Result<Self> {
+        Self::open_with_operation(path, credential, mode, &Operation::default())
+    }
+
+    pub(crate) fn open_with_operation(
+        path: &Path,
+        credential: Credential<'_>,
+        mode: OpenMode,
+        operation: &Operation,
+    ) -> Result<Self> {
+        operation.check()?;
         let store = Store::open(path)?;
-        let header: KeyFile = codec::decode(
-            &codec::read_limited(&store.root.join("keys.json"), KEY_LIMIT)?,
-            KEY_LIMIT,
-        )?;
+        let key_bytes = codec::read_limited(&store.root.join("keys.json"), KEY_LIMIT)?;
+        let header: KeyFile = codec::decode(&key_bytes, KEY_LIMIT)?;
         let master = header.unlock(credential)?;
-        let graph = ledger::scan(&store, &master, header.vault_id)?;
+        operation.check()?;
+        let graph = ledger::scan_with_operation(&store, &master, header.vault_id, operation)?;
         let current = match mode {
             OpenMode::Recovery(id) if graph.records.contains_key(&id) => id,
             OpenMode::Recovery(_) => return Err(Error::InvalidInput),
@@ -91,7 +100,10 @@ impl Vault {
         let record = &graph.records[&current];
         let snapshot = read_snapshot(&store, &master, header.vault_id, record.snapshot)?;
         let mut issues = graph.report.issues;
-        check_references(&store, &snapshot, &mut issues)?;
+        check_references_with_metadata(&store, &snapshot, &mut issues, operation, |path| {
+            path.symlink_metadata()
+        })?;
+        operation.check()?;
         if matches!(mode, OpenMode::ReadWrite) && !issues.is_empty() {
             return Err(Error::ReadOnly);
         }
@@ -174,8 +186,13 @@ impl Vault {
                     return Err(Error::ReadOnly);
                 }
             }
-            let checked =
-                check_references_with_metadata(&self.store, &self.snapshot, &mut issues, metadata);
+            let checked = check_references_with_metadata(
+                &self.store,
+                &self.snapshot,
+                &mut issues,
+                &Operation::default(),
+                metadata,
+            );
             let damaged = !issues.is_empty();
             if damaged {
                 self.writable = false;
@@ -255,16 +272,20 @@ pub(crate) fn read_snapshot(store: &Store, master: &Secret, vault: Id, id: Id) -
 }
 
 fn check_references(store: &Store, snapshot: &Snapshot, issues: &mut Vec<Issue>) -> Result<()> {
-    check_references_with_metadata(store, snapshot, issues, |path| path.symlink_metadata())
+    check_references_with_metadata(store, snapshot, issues, &Operation::default(), |path| {
+        path.symlink_metadata()
+    })
 }
 
 fn check_references_with_metadata(
     store: &Store,
     snapshot: &Snapshot,
     issues: &mut Vec<Issue>,
+    operation: &Operation,
     mut metadata: impl FnMut(&Path) -> std::io::Result<std::fs::Metadata>,
 ) -> Result<()> {
     for entry in &snapshot.entries {
+        operation.check()?;
         if let EntryKind::File { object, length, .. } = entry.kind {
             match metadata(&store.path(Kind::Object, object)) {
                 Ok(metadata) if metadata.is_file() && metadata.len() == object_size(length)? => {}

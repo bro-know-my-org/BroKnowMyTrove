@@ -73,6 +73,10 @@ impl Store {
             builder.mode(0o700);
         }
         builder.create(root)?;
+        Self::initialize(root)
+    }
+
+    pub(crate) fn initialize(root: &Path) -> Result<Self> {
         let store = Self::lock(root)?;
         for directory in ["objects", "snapshots", "commits"] {
             fs::create_dir(store.root.join(directory))?;
@@ -186,12 +190,19 @@ impl Store {
     }
 
     pub fn inventory(&self, kind: Kind) -> Result<Inventory> {
+        self.inventory_with_operation(kind, &Operation::default())
+    }
+
+    pub fn inventory_with_operation(&self, kind: Kind, operation: &Operation) -> Result<Inventory> {
+        operation.check()?;
         let mut result = Inventory {
             ids: Vec::new(),
             unexpected: false,
             temporary: 0,
         };
         for (count, entry) in fs::read_dir(self.root.join(kind.directory()))?.enumerate() {
+            operation.checkpoint(Point::InventoryEntry)?;
+            operation.check()?;
             if count >= MAX_ENTRIES {
                 return Err(Error::ResourceLimit);
             }
@@ -215,11 +226,13 @@ impl Store {
             }
         }
         result.ids.sort_unstable();
+        operation.check()?;
         Ok(result)
     }
 
-    pub fn unexpected_root_entry(&self) -> Result<bool> {
+    pub fn unexpected_root_entry(&self, operation: &Operation) -> Result<bool> {
         for (count, entry) in fs::read_dir(&self.root)?.enumerate() {
+            operation.check()?;
             if count >= MAX_ENTRIES {
                 return Err(Error::ResourceLimit);
             }
