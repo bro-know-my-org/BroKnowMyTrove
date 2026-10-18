@@ -14,7 +14,7 @@ mod picker;
 mod session;
 mod theme;
 use actions::Action;
-use picker::{NEW_VAULT_DIRECTORY, PathInput, Picker, Target};
+use picker::{PathInput, Picker, Target};
 use session::{Request, Session, Task};
 use vault_i18n::{ErrorContext, Message};
 
@@ -220,11 +220,7 @@ impl VaultApp {
             let target = self.picker.take().unwrap().target;
             if let Some(path) = selection {
                 match target {
-                    Target::Vault => self.form.path.set(if self.form.create {
-                        path.join(NEW_VAULT_DIRECTORY)
-                    } else {
-                        path
-                    }),
+                    Target::Vault => self.form.path.set(path),
                     Target::Source => {
                         if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
                             self.editor.name = Zeroizing::new(name.into());

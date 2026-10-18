@@ -63,17 +63,33 @@ impl Kind {
 
 impl Store {
     pub fn create(root: &Path) -> Result<Self> {
-        #[cfg(unix)]
-        let mut builder = fs::DirBuilder::new();
-        #[cfg(not(unix))]
-        let builder = fs::DirBuilder::new();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
+        // Strip trailing separators and `/.` before inspecting the final component:
+        // otherwise symlink_metadata follows a directory symlink on Unix.
+        let root: PathBuf = root.components().collect();
+        match fs::symlink_metadata(&root) {
+            Ok(metadata) => {
+                if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                    return Err(Error::InvalidInput);
+                }
+                ensure_empty_directory(&root)?;
+                #[cfg(unix)]
+                restrict_existing_directory(&root, || ensure_empty_directory(&root))?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                #[cfg(unix)]
+                let mut builder = fs::DirBuilder::new();
+                #[cfg(not(unix))]
+                let builder = fs::DirBuilder::new();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::DirBuilderExt;
+                    builder.mode(0o700);
+                }
+                builder.create(&root)?;
+            }
+            Err(error) => return Err(error.into()),
         }
-        builder.create(root)?;
-        Self::initialize(root)
+        Self::initialize(&root)
     }
 
     pub(crate) fn initialize(root: &Path) -> Result<Self> {
@@ -258,6 +274,38 @@ impl Store {
     }
 }
 
+fn ensure_empty_directory(path: &Path) -> Result<()> {
+    if fs::read_dir(path)?.next().transpose()?.is_some() {
+        return Err(Error::Conflict);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_existing_directory(
+    root: &Path,
+    check_empty: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(root)?;
+    let metadata = directory.metadata()?;
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(Error::InvalidInput);
+    }
+    // Match newly created roots without following a replacement symlink at chmod.
+    directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    // A file could have arrived before chmod. Restore the same directory's original
+    // permissions if that check rejects creation, including on directory read errors.
+    if let Err(error) = check_empty() {
+        directory.set_permissions(metadata.permissions())?;
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn validate_directory(path: &Path) -> Result<()> {
     let metadata = path.symlink_metadata()?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
@@ -297,6 +345,98 @@ mod tests {
         assert_eq!(&**store.read(Kind::Object, id, 20).unwrap(), b"first");
         drop(store);
         assert!(Store::open(&path).is_ok());
+    }
+
+    #[test]
+    fn create_uses_an_empty_existing_directory_and_rejects_others() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("vault");
+        fs::create_dir(&path).unwrap();
+        let store = Store::create(&path).unwrap();
+        assert!(path.join("objects").is_dir());
+        drop(store);
+
+        let occupied = directory.path().join("occupied");
+        fs::create_dir(&occupied).unwrap();
+        fs::write(occupied.join("file"), b"x").unwrap();
+        assert!(matches!(Store::create(&occupied), Err(Error::Conflict)));
+
+        let file = directory.path().join("file");
+        fs::write(&file, b"x").unwrap();
+        assert!(matches!(Store::create(&file), Err(Error::InvalidInput)));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let target = directory.path().join("target");
+            fs::create_dir(&target).unwrap();
+            let link = directory.path().join("link");
+            symlink(&target, &link).unwrap();
+            for path in [link.clone(), link.join(""), link.join(".")] {
+                assert!(matches!(Store::create(&path), Err(Error::InvalidInput)));
+                assert!(fs::read_dir(&target).unwrap().next().is_none());
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn create_restricts_existing_directory_permissions_without_changing_occupied_ones() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        for mode in [0o777, 0o755] {
+            let path = directory.path().join(format!("vault-{mode:o}"));
+            fs::create_dir(&path).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            let _store = Store::create(&path).unwrap();
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+
+        let occupied = directory.path().join("occupied");
+        fs::create_dir(&occupied).unwrap();
+        fs::write(occupied.join("file"), b"x").unwrap();
+        fs::set_permissions(&occupied, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(Store::create(&occupied), Err(Error::Conflict)));
+        assert_eq!(
+            fs::metadata(&occupied).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejected_directory_recheck_restores_original_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        ensure_empty_directory(path).unwrap();
+        let result = restrict_existing_directory(path, || {
+            // Deterministically model a file arriving between the two empty checks.
+            fs::write(path.join("arrived"), b"preserve")?;
+            ensure_empty_directory(path)
+        });
+        assert!(matches!(result, Err(Error::Conflict)));
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(fs::read(path.join("arrived")).unwrap(), b"preserve");
+
+        let result = restrict_existing_directory(path, || {
+            Err(Error::Io(std::io::ErrorKind::PermissionDenied))
+        });
+        assert!(matches!(
+            result,
+            Err(Error::Io(std::io::ErrorKind::PermissionDenied))
+        ));
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
     }
 
     #[test]

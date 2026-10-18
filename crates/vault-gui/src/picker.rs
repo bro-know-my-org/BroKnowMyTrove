@@ -4,9 +4,6 @@ use vault_core::Result;
 use vault_i18n::{Locale, TextKey};
 use zeroize::Zeroizing;
 
-/// A filesystem component, independent of the current display language.
-pub const NEW_VAULT_DIRECTORY: &str = "新保险库";
-
 /// Preserve native paths even when their display text is not lossless UTF-8.
 #[derive(Default)]
 pub struct PathInput {
@@ -47,7 +44,7 @@ mod tests {
     }
 
     #[test]
-    fn language_changes_while_picking_do_not_change_the_destination() {
+    fn picking_uses_the_selected_directory_regardless_of_mode_or_language() {
         for (before, after) in [(Locale::ZhCn, Locale::EnUs), (Locale::EnUs, Locale::ZhCn)] {
             for create in [false, true] {
                 let (sender, receiver) = mpsc::sync_channel(1);
@@ -64,27 +61,10 @@ mod tests {
                     ..Default::default()
                 };
                 app.locale = after;
-                let parent = PathBuf::from("selected-parent");
-                sender.send(Some(parent.clone())).unwrap();
+                let selected = PathBuf::from("selected-directory");
+                sender.send(Some(selected.clone())).unwrap();
                 app.poll(&egui::Context::default());
-                assert_eq!(
-                    app.form.path.path(),
-                    if create {
-                        parent.join(NEW_VAULT_DIRECTORY)
-                    } else {
-                        parent
-                    }
-                );
-                assert!(
-                    after
-                        .text(TextKey::BrowseHint)
-                        .contains(NEW_VAULT_DIRECTORY)
-                );
-                assert!(
-                    after
-                        .text(TextKey::DirectoryHint)
-                        .contains(NEW_VAULT_DIRECTORY)
-                );
+                assert_eq!(app.form.path.path(), selected);
             }
         }
     }

@@ -90,12 +90,12 @@ texts! {
     NewVaultTab: "创建新保险库", "New vault";
     CreateVault: "创建保险库", "Create vault";
     UnlockVault: "解锁保险库", "Unlock vault";
-    CreateHint: "选择一个新目录，设置你的保险库密码。", "Choose a new directory and set your vault password.";
+    CreateHint: "选择一个空目录，设置你的保险库密码。", "Choose an empty folder and set your vault password.";
     UnlockHint: "选择保险库，解锁后即可管理你的文件。", "Choose a vault and unlock it to manage your files.";
     VaultDirectory: "保险库目录", "Vault directory";
     Browse: "浏览…", "Browse…";
-    BrowseHint: "新建时会在所选目录下追加“新保险库”", "Creation appends the fixed folder name ‘新保险库’ to the selected directory";
-    DirectoryHint: "填写尚不存在的目录；浏览时自动追加“新保险库”。", "Enter a directory that does not exist; browsing appends the fixed folder name ‘新保险库’.";
+    BrowseHint: "选择空目录作为保险库目录", "Choose an empty folder as the vault directory";
+    DirectoryHint: "选择空目录，或填写尚不存在的目录。", "Choose an empty folder, or enter a directory that does not exist.";
     RecoveryKey: "恢复密钥", "Recovery key";
     Password: "密码", "Password";
     SetPassword: "设置保险库密码", "Set vault password";

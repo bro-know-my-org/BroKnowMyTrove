@@ -2818,6 +2818,7 @@ dependencies = [
  "hex",
  "libc",
  "libsodium-sys-stable",
+ "rustix 1.1.5",
  "same-file",
  "serde",
  "serde_json",
