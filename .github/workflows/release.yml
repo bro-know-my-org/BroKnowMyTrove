@@ -2,7 +2,7 @@ name: GitHub Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*.*.*']
 
 permissions:
   contents: read
@@ -25,30 +25,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Check release tag against Cargo.toml
+      - name: Validate release tag
         id: version
-        shell: python
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          import os
-          import tomllib
-          from pathlib import Path
-
-          manifest = tomllib.loads(Path('Cargo.toml').read_text())
-          version = manifest['workspace']['package']['version']
-          if os.environ['REF_TYPE'] == 'tag':
-              expected = f'v{version}'
-              if os.environ['REF_NAME'] != expected:
-                  raise SystemExit(f'Release tag must be {expected}')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f"prerelease={str('-' in version.split('+', 1)[0]).lower()}\n")
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 .github/scripts/prepare-release.py --validate-only
 
   checks:
     name: Rust checks
     needs: version
     uses: ./.github/workflows/check.yml
+    with:
+      release-tag: ${{ github.ref_name }}
 
   build:
     name: Test and build (${{ matrix.target }})
@@ -94,6 +82,10 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           key: ${{ matrix.target }}
+      - name: Set release version
+        run: |
+          python .github/scripts/prepare-release.py
+          cargo update --workspace
       - name: Test workspace
         run: cargo test --workspace --locked --target "$TARGET"
       - name: Test CLI without GUI

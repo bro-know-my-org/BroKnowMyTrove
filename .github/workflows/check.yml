@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      release-tag:
+        description: Release tag to use as the build version
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -26,6 +32,13 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           save-if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+      - name: Set release version
+        if: inputs.release-tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          python3 .github/scripts/prepare-release.py
+          cargo update --workspace
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Build and test CLI-only configuration
