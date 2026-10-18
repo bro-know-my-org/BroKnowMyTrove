@@ -134,6 +134,8 @@ texts! {
     Locked: "已锁定", "Locked";
     Experimental: "实验版本", "Experimental";
     ExperimentalWarning: "格式未稳定，未经独立安全审计，仅使用可丢弃测试数据。", "The format is unstable and has not been independently audited. Use disposable test data only.";
+    GuiStartupFailed: "无法启动图形界面，请检查图形会话和驱动；命令行用法见 bkmt --help。", "Cannot start the graphical interface. Check the graphical session and drivers; run bkmt --help for command-line usage.";
+    LaunchHelp: "不带参数运行 bkmt 打开图形界面；带参数运行进入命令行模式。", "Run bkmt without arguments to open the graphical interface; supply arguments for command-line mode.";
     WaitingPicker: "等待系统选择器；锁定可丢弃选择结果。", "Waiting for the system picker; locking discards the selection.";
     AutoLock: "空闲 5 分钟自动锁定", "Locks after 5 minutes of inactivity";
     Working: "正在处理", "Working";
@@ -247,7 +249,7 @@ texts! {
     RecoveryPrompt: "恢复密钥: ", "Recovery key: ";
     RecoveryDisplay: "恢复密钥（请独立保存）: ", "Recovery key (save separately): ";
     LanguageHelp: "界面语言：zh-CN 或 en-US，默认 zh-CN", "Display language: zh-CN or en-US; default: zh-CN";
-    HelpTemplate: "{about-with-newline}\n用法: {usage}\n\n{all-args}{after-help}", "{about-with-newline}\nUsage: {usage}\n\n{all-args}{after-help}";
+    HelpTemplate: "{before-help}{about-with-newline}\n用法: {usage}\n\n{all-args}{after-help}", "{before-help}{about-with-newline}\nUsage: {usage}\n\n{all-args}{after-help}";
     CommandsHeading: "命令", "Commands";
     ArgumentsHeading: "参数", "Arguments";
     OptionsHeading: "选项", "Options";

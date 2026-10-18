@@ -2806,7 +2806,9 @@ dependencies = [
  "serde_json",
  "unicode-segmentation",
  "vault-core",
+ "vault-gui",
  "vault-i18n",
+ "vault-platform",
  "zeroize",
 ]
 

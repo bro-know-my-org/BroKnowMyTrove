@@ -33,7 +33,7 @@ done
 export DISPLAY=":"$(cat "$task_logs/display")
 export LIBGL_ALWAYS_SOFTWARE=1
 unset WAYLAND_DISPLAY
-"${1:-target/debug/bkm-gui}" >"$task_logs/gui.out" 2>"$task_logs/gui.err" &
+"${1:-target/debug/bkmt}" >"$task_logs/gui.out" 2>"$task_logs/gui.err" &
 app_pid=$!
 window=$(timeout 10s xdotool search --sync --onlyvisible --pid "$app_pid" \
     --name BroKnowMyTrove | head -n 1)

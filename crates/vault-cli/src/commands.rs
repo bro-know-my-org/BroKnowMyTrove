@@ -99,7 +99,7 @@ pub fn command(locale: Locale) -> Command {
     let vault_command = |name, help| vault_command(locale, name, help);
     let readable = |name, help| readable(locale, name, help);
     let parent = || parent(locale);
-    let command = Command::new("bkm")
+    let command = Command::new("bkmt")
         .version(env!("CARGO_PKG_VERSION"))
         .disable_version_flag(true)
         .disable_help_subcommand(true)
@@ -274,6 +274,8 @@ pub fn command(locale: Locale) -> Command {
                 ])),
         )
         .mut_subcommands(|command| localized_help(command, locale));
+    #[cfg(feature = "gui")]
+    let command = command.before_help(locale.text(TextKey::LaunchHelp));
     localized_help(command, locale)
 }
 
@@ -473,24 +475,24 @@ mod tests {
         for name in ["rotate-recovery", "remove-recovery"] {
             assert!(
                 command(Locale::EnUs)
-                    .try_get_matches_from(["bkm", name, "vault", "--recovery-key"])
+                    .try_get_matches_from(["bkmt", name, "vault", "--recovery-key"])
                     .is_err()
             );
             assert!(
                 command(Locale::EnUs)
-                    .try_get_matches_from(["bkm", name, "vault", "--confirm", "--recovery-key"])
+                    .try_get_matches_from(["bkmt", name, "vault", "--confirm", "--recovery-key"])
                     .is_err()
             );
             assert!(
                 command(Locale::EnUs)
-                    .try_get_matches_from(["bkm", name, "vault", "--confirm"])
+                    .try_get_matches_from(["bkmt", name, "vault", "--confirm"])
                     .is_ok()
             );
         }
         assert!(
             command(Locale::EnUs)
                 .try_get_matches_from([
-                    "bkm",
+                    "bkmt",
                     "change-password",
                     "vault",
                     "--confirm",
@@ -505,7 +507,7 @@ mod tests {
         for name in ["backup", "restore-vault"] {
             for locale in [Locale::ZhCn, Locale::EnUs] {
                 let matches = command(locale)
-                    .try_get_matches_from(["bkm", name, "source", "new-target", "--json"])
+                    .try_get_matches_from(["bkmt", name, "source", "new-target", "--json"])
                     .unwrap();
                 let args = matches.subcommand().unwrap().1;
                 assert_eq!(get::<String>(args, "verification"), "full");
@@ -513,7 +515,7 @@ mod tests {
                 assert!(
                     command(locale)
                         .try_get_matches_from([
-                            "bkm",
+                            "bkmt",
                             name,
                             "source",
                             "new-target",
@@ -529,9 +531,9 @@ mod tests {
     #[test]
     fn language_selection_precedes_help_and_respects_positional_terminator() {
         for args in [
-            vec!["bkm", "--lang", "en-US", "--help"],
-            vec!["bkm", "list", "vault", "--lang=en-US", "--help"],
-            vec!["bkm", "--lang=en-US"],
+            vec!["bkmt", "--lang", "en-US", "--help"],
+            vec!["bkmt", "list", "vault", "--lang=en-US", "--help"],
+            vec!["bkmt", "--lang=en-US"],
         ] {
             let args: Vec<_> = args.into_iter().map(Into::into).collect();
             let locale = requested_locale(&args);
@@ -542,7 +544,7 @@ mod tests {
             assert!(help.contains("Create an experimental vault"));
             assert!(!help.contains("创建实验保险库"));
         }
-        let args: Vec<_> = ["bkm", "mkdir", "vault", "--", "--lang=en-US"]
+        let args: Vec<_> = ["bkmt", "mkdir", "vault", "--", "--lang=en-US"]
             .into_iter()
             .map(Into::into)
             .collect();
@@ -554,7 +556,7 @@ mod tests {
         );
         assert!(
             command(Locale::ZhCn)
-                .try_get_matches_from(["bkm", "--lang", "fr-FR"])
+                .try_get_matches_from(["bkmt", "--lang", "fr-FR"])
                 .is_err()
         );
         for locale in [Locale::ZhCn, Locale::EnUs] {

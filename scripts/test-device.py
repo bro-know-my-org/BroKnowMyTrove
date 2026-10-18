@@ -6,7 +6,7 @@ This simulates block I/O errors, not physical unplugging or real power loss.
 """
 import json, os, pathlib, runpy, signal, subprocess, sys, tempfile, time, shutil
 if len(sys.argv) != 2 or sys.platform != 'linux':
-    raise SystemExit('usage (Linux/root): test-device.py /absolute/path/to/bkm')
+    raise SystemExit('usage (Linux/root): test-device.py /absolute/path/to/bkmt')
 assert os.geteuid() == 0
 sys.argv[1] = os.path.abspath(sys.argv[1])
 call = runpy.run_path(str(pathlib.Path(__file__).with_name('test-cli.py')))['run_cli']

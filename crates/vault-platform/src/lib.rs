@@ -1,5 +1,22 @@
-//! Filesystem capability queries. All platform FFI is isolated from the vault core.
+//! Filesystem and process adaptation. Platform FFI is isolated from the vault core.
 use std::{io, path::Path};
+
+/// Release a console created solely for this process (for example by Explorer).
+/// Keep a shared terminal attached so GUI startup errors remain visible there.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn detach_private_console() -> io::Result<()> {
+    use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
+    let mut process = 0;
+    // SAFETY: the writable buffer holds one process ID and lives across the call.
+    // FreeConsole only detaches this process, and takes no pointers.
+    unsafe {
+        if GetConsoleProcessList(&mut process, 1) == 1 && FreeConsole() == 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
 
 pub struct Capacity {
     pub available: u64,

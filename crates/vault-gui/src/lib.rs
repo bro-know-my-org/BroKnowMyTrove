@@ -18,7 +18,8 @@ use picker::{PathInput, Picker, Target};
 use session::{Request, Session, Task};
 use vault_i18n::{ErrorContext, Message};
 
-fn main() -> eframe::Result {
+/// Run the desktop interface on the process's main thread.
+pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1080.0, 700.0])
@@ -26,7 +27,7 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         vault_core::PRODUCT_NAME,
         options,
         Box::new(|cc| {
@@ -55,7 +56,16 @@ fn main() -> eframe::Result {
             theme::install(&cc.egui_ctx);
             Ok(Box::new(VaultApp::default()))
         }),
-    )
+    );
+    #[cfg(windows)]
+    if result.is_err() {
+        rfd::MessageDialog::new()
+            .set_title(vault_core::PRODUCT_NAME)
+            .set_description(Locale::default().text(TextKey::GuiStartupFailed))
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+    }
+    result
 }
 
 #[derive(Default)]

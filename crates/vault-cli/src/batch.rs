@@ -63,7 +63,7 @@ fn parse_line(line: &str) -> Result<ArgMatches> {
     // Never render clap errors: they may contain plaintext names or source paths.
     let matches = commands::command(Locale::default())
         .try_get_matches_from(
-            ["bkm", name, "batch-vault"]
+            ["bkmt", name, "batch-vault"]
                 .into_iter()
                 .map(String::from)
                 .chain(tokens.iter().skip(1).cloned()),

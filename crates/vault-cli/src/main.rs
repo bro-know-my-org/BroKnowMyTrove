@@ -12,6 +12,10 @@ use vault_core::{Error, operation::Operation};
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().collect();
+    #[cfg(feature = "gui")]
+    if args.len() == 1 {
+        return run_gui();
+    }
     let locale = commands::requested_locale(&args);
     let matches = match commands::command(locale).try_get_matches_from(args) {
         Ok(matches) => matches,
@@ -79,6 +83,22 @@ fn main() -> ExitCode {
             } else {
                 1
             })
+        }
+    }
+}
+
+#[cfg(feature = "gui")]
+fn run_gui() -> ExitCode {
+    #[cfg(windows)]
+    if vault_platform::detach_private_console().is_err() {
+        response::diagnostic(vault_i18n::Locale::default().text(TextKey::GuiStartupFailed));
+        return ExitCode::FAILURE;
+    }
+    match vault_gui::run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => {
+            response::diagnostic(vault_i18n::Locale::default().text(TextKey::GuiStartupFailed));
+            ExitCode::FAILURE
         }
     }
 }

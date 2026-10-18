@@ -6,7 +6,7 @@ use std::{
 };
 
 fn run(args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_bkm"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_bkmt"));
     command.args(args).stdout(Stdio::piped());
     run_command(command)
 }
@@ -24,6 +24,7 @@ fn run_command(mut command: Command) -> Output {
     let mut child = command
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
+        .env_remove("XDG_RUNTIME_DIR")
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -57,34 +58,38 @@ fn run_command(mut command: Command) -> Output {
 #[test]
 fn help_and_version_work_without_a_display() {
     for (args, expected) in [
-        (vec![], "用法: bkm"),
-        (vec!["--help"], "用法: bkm"),
-        (vec!["--lang", "en-US", "--help"], "Usage: bkm"),
+        (vec!["--help"], "用法: bkmt"),
+        (vec!["--lang", "en-US", "--help"], "Usage: bkmt"),
         (
             vec!["create", "--lang=en-US", "--help"],
-            "Usage: bkm create",
+            "Usage: bkmt create",
         ),
         (
             vec!["help", "create", "--lang", "zh-CN"],
-            "用法: bkm create",
+            "用法: bkmt create",
         ),
-        (vec!["help", "list", "--lang", "en-US"], "Usage: bkm list"),
+        (vec!["help", "list", "--lang", "en-US"], "Usage: bkmt list"),
         (
             vec!["--version"],
-            concat!("bkm ", env!("CARGO_PKG_VERSION")),
+            concat!("bkmt ", env!("CARGO_PKG_VERSION")),
         ),
     ] {
         let output = run(&args);
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
         assert!(output.stderr.is_empty());
+        #[cfg(feature = "gui")]
+        if args == ["--help"] {
+            assert!(String::from_utf8_lossy(&output.stdout).contains("不带参数"));
+        }
     }
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn help_output_failure_is_controlled() {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_bkm"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_bkmt"));
+    command.arg("--help");
     command.stdout(
         std::fs::OpenOptions::new()
             .write(true)
@@ -94,6 +99,26 @@ fn help_output_failure_is_controlled() {
     let output = run_command(command);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stderr.is_empty());
+}
+
+#[cfg(all(feature = "gui", target_os = "linux"))]
+#[test]
+fn no_arguments_attempts_gui_and_reports_missing_display() {
+    let output = run(&[]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("无法启动图形界面"));
+    assert!(error.contains("bkmt --help"));
+}
+
+#[cfg(not(feature = "gui"))]
+#[test]
+fn cli_only_build_prints_help_without_arguments() {
+    let output = run(&[]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("用法: bkmt"));
 }
 
 #[test]
