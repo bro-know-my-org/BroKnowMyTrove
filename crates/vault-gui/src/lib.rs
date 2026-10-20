@@ -8,6 +8,8 @@ use vault_i18n::{Locale, TextKey};
 use zeroize::Zeroizing;
 
 mod actions;
+#[cfg(target_os = "linux")]
+mod backend;
 mod credentials_ui;
 mod drag_export;
 mod drop_import;
@@ -29,6 +31,8 @@ pub fn run() -> eframe::Result {
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
+    #[cfg(target_os = "linux")]
+    let options = backend::configure(options)?;
     let result = eframe::run_native(
         vault_core::PRODUCT_NAME,
         options,
@@ -717,13 +721,19 @@ impl VaultApp {
                         .margin(egui::Margin::symmetric(8, 5)),
                 );
                 let entries = self.browser.entries(&session.vault);
-                if !self.browser.trash && session.vault.is_writable() {
-                    theme::caption(ui, locale.text(TextKey::DropImportHint));
+                if matches!(drag_support, Err(TextKey::DragExportX11Required)) {
+                    theme::caption(ui, locale.text(TextKey::WaylandDragUnavailable));
+                } else {
+                    if !self.browser.trash && session.vault.is_writable() {
+                        theme::caption(ui, locale.text(TextKey::DropImportHint));
+                    }
+                    theme::caption(
+                        ui,
+                        locale.text(
+                            drag_support.map_or_else(|key| key, |()| TextKey::DragExportHint),
+                        ),
+                    );
                 }
-                theme::caption(
-                    ui,
-                    locale.text(drag_support.map_or_else(|key| key, |()| TextKey::DragExportHint)),
-                );
                 theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
                 if entries.is_empty() {

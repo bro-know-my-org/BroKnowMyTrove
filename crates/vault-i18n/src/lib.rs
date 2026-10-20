@@ -146,6 +146,7 @@ texts! {
     DragCleanupDone: "拖出暂存明文已清理。", "Temporary drag plaintext cleaned up.";
     DragExportUnavailable: "此平台暂不支持系统拖出；请使用右侧导出。", "System drag-out is not supported on this platform; use Export on the right.";
     DragExportX11Required: "Linux 拖出需要 X11/XWayland 窗口；原生 Wayland 请使用右侧导出。", "Linux drag-out requires an X11/XWayland window; on native Wayland use Export on the right.";
+    WaylandDragUnavailable: "此窗口使用原生 Wayland，暂不支持拖入或拖出；请使用右侧导入、导出。", "This window uses native Wayland. File drag-in/out is unavailable; use Import and Export on the right.";
     DragExportX11Transport: "此 X11 连接方式暂不支持拖出；请使用右侧导出。", "Drag-out is unavailable over this X11 transport; use Export on the right.";
     DragExportUnconfirmed: "拖出未确认成功，请检查目标文件；临时明文将在锁定或退出时清理。", "Drop success was not confirmed; check the destination. Temporary plaintext is removed on lock or exit.";
     SearchAdjustHint: "可以切换目录，或调整搜索内容。", "Choose another folder or change your search.";
