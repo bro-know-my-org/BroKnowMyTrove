@@ -149,7 +149,14 @@ impl Vault {
         }
         let mut temporary = tempfile::Builder::new()
             .prefix(".bkm-export-")
-            .tempfile_in(parent)?;
+            .make_in(parent, vault_platform::create_private_file)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::Unsupported {
+                    Error::ExportPrivacy
+                } else {
+                    error.into()
+                }
+            })?;
         stream::decrypt(
             &self.master,
             self.vault_id,

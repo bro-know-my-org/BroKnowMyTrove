@@ -40,6 +40,7 @@ impl Locale {
             Error::InsufficientSpace => ErrorSpace,
             Error::CommitUncertain => ErrorCommit,
             Error::ExportUncertain => ErrorExport,
+            Error::ExportPrivacy => ErrorExportPrivacy,
         })
     }
 
@@ -192,6 +193,7 @@ texts! {
     Done: "操作完成。", "Operation completed.";
     Complete: "完成", "Complete";
     ErrorIo: "文件系统操作失败", "filesystem operation failed";
+    ErrorExportPrivacy: "目标文件系统无法保护导出暂存明文，请改用支持私有权限的本地目录", "Destination cannot protect temporary plaintext; choose a private local filesystem";
     ErrorCrypto: "密码运算失败", "cryptographic operation failed";
     ErrorAuthentication: "认证失败（凭据错误或数据损坏）", "authentication failed (wrong credential or damaged data)";
     ErrorFormat: "无效或不支持的实验格式", "invalid or unsupported experimental format";

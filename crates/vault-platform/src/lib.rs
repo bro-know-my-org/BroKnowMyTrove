@@ -1,6 +1,39 @@
 //! Filesystem and process adaptation. Platform FFI is isolated from the vault core.
 use std::{io, path::Path};
 
+#[cfg(windows)]
+mod private_file;
+#[cfg(windows)]
+pub use private_file::create_private_file;
+#[cfg(target_os = "macos")]
+mod macos_acl;
+
+/// Create a new file for unauthenticated export staging, never inheriting
+/// broader data access. A destination unable to enforce privacy is rejected.
+#[cfg(not(windows))]
+pub fn create_private_file(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    let checked = (|| {
+        if file.metadata()?.permissions().mode() & 0o077 != 0 {
+            return Err(io::ErrorKind::Unsupported.into());
+        }
+        #[cfg(target_os = "macos")]
+        macos_acl::check_private(&file)?;
+        Ok(())
+    })();
+    if let Err(error) = checked {
+        let _ = std::fs::remove_file(path);
+        return Err(error);
+    }
+    Ok(file)
+}
+
 /// Release a console created solely for this process (for example by Explorer).
 /// Keep a shared terminal attached so GUI startup errors remain visible there.
 #[cfg(windows)]

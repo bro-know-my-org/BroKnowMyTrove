@@ -58,6 +58,110 @@ fn disk_roundtrip_reopen_unicode_empty_and_chunk_boundary() {
 }
 
 #[test]
+fn export_staging_stays_private_and_cancelled_plaintext_is_removed() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let (directory, mut vault, _) = fixture();
+    let source = directory.path().join("source");
+    fs::write(&source, vec![17; model::CHUNK + 1]).unwrap();
+    let id = vault
+        .import_file(None, "私有导出", &source, &Operation::default())
+        .unwrap();
+    let destination = directory.path().join("result");
+    let parent = directory.path().to_owned();
+    let observed = Arc::new(AtomicBool::new(false));
+    let seen = observed.clone();
+    let operation = Operation::default();
+    let cancel = operation.clone();
+    let operation = operation.with_progress(move |_| {
+        let temporary = fs::read_dir(&parent)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".bkm-export-")
+            })
+            .unwrap();
+        assert!(!parent.join("result").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&temporary).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        #[cfg(windows)]
+        assert_eq!(
+            fs::File::open(&temporary).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        seen.store(true, Ordering::Relaxed);
+        cancel.cancel();
+    });
+    assert!(matches!(
+        vault.export_file(id, &destination, &operation),
+        Err(Error::Cancelled)
+    ));
+    assert!(observed.load(Ordering::Relaxed));
+    assert!(!destination.exists());
+    assert!(!fs::read_dir(directory.path()).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".bkm-export-")
+    }));
+    vault
+        .export_file(id, &destination, &Operation::default())
+        .unwrap();
+    assert_eq!(fs::read(destination).unwrap(), fs::read(source).unwrap());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn export_rejects_inherited_darwin_acl_before_writing_plaintext() {
+    let (directory, mut vault, _) = fixture();
+    let source = directory.path().join("source");
+    fs::write(&source, b"synthetic private content").unwrap();
+    let id = vault
+        .import_file(None, "ACL", &source, &Operation::default())
+        .unwrap();
+    let parent = directory.path().join("export");
+    fs::create_dir(&parent).unwrap();
+    assert!(
+        std::process::Command::new("/bin/chmod")
+            .args(["+a", "everyone allow read,file_inherit"])
+            .arg(&parent)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let destination = parent.join("result");
+    assert!(matches!(
+        vault.export_file(id, &destination, &Operation::default()),
+        Err(Error::ExportPrivacy)
+    ));
+    assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
+    assert!(
+        std::process::Command::new("/bin/chmod")
+            .arg("-N")
+            .arg(&parent)
+            .status()
+            .unwrap()
+            .success()
+    );
+    vault
+        .export_file(id, &destination, &Operation::default())
+        .unwrap();
+    assert_eq!(fs::read(destination).unwrap(), fs::read(source).unwrap());
+}
+
+#[test]
 fn failed_authentication_never_publishes_plaintext_or_leaves_temporary_files() {
     let (directory, mut vault, _) = fixture();
     let source = directory.path().join("source");

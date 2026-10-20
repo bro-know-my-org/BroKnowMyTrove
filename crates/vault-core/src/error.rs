@@ -17,6 +17,7 @@ pub enum Error {
     InsufficientSpace,
     CommitUncertain,
     ExportUncertain,
+    ExportPrivacy,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -51,6 +52,9 @@ impl fmt::Display for Error {
             Self::CommitUncertain => "commit outcome uncertain; close and inspect the vault",
             Self::ExportUncertain => {
                 "authenticated export published; directory durability uncertain"
+            }
+            Self::ExportPrivacy => {
+                "destination cannot protect temporary plaintext; choose a private local filesystem"
             }
         };
         f.write_str(message)
