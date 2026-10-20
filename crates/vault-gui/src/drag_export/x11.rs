@@ -17,6 +17,8 @@ use x11rb::{
 };
 
 mod source;
+#[cfg(test)]
+use source::Atoms;
 use source::Source;
 #[cfg(test)]
 static X11_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -311,3 +313,7 @@ impl Drop for Drag {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "x11_tests.rs"]
+mod tests;
