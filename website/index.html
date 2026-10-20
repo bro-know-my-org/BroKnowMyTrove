@@ -3,12 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="兄弟懂我的保险箱（Bro Know My Trove / BKMT），离线优先的跨平台加密文件库。了解如何解锁、存入和取出文件。" />
+    <meta name="theme-color" content="#090d0b" />
+    <link rel="icon" type="image/svg+xml" href="./trove-icon.svg" />
     <title>兄弟懂我的保险箱 · BKMT</title>
   </head>
   <body>
-    <main>
-      <h1>兄弟懂我的保险箱</h1>
-      <p>开发环境已就绪。</p>
+    <main id="top">
+      <section class="hero min-h-screen" aria-labelledby="hero-title">
+        <img class="hero-background object-cover" src="./vault-hero.svg" alt="" fetchpriority="high" width="1600" height="1000" />
+        <div class="hero-overlay" aria-hidden="true"></div>
+        <header class="site-header wrap">
+          <a class="brand" href="#top" aria-label="兄弟懂我的保险箱 首页"><img class="brand-mark" src="./trove-icon.svg" alt="" width="40" height="40" /><span class="brand-name">兄弟懂我的保险箱<small>Bro Know My Trove</small></span></a>
+          <nav aria-label="主导航">
+            <a class="experience-link" href="#experience">使用方法 <span aria-hidden="true">↗</span></a>
+            <a class="github-link" href="https://github.com/bro-know-my-org/BroKnowMyTrove" target="_blank" rel="noopener noreferrer" aria-label="在 GitHub 查看源代码（新窗口）" title="GitHub 仓库">
+              <!-- GitHub Primer Octicons: https://github.com/primer/octicons/blob/main/icons/mark-github-24.svg -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M10.226 17.284c-2.965-.36-5.054-2.493-5.054-5.256 0-1.123.404-2.336 1.078-3.144-.292-.741-.247-2.314.09-2.965.898-.112 2.111.36 2.83 1.01.853-.269 1.752-.404 2.853-.404 1.1 0 1.999.135 2.807.382.696-.629 1.932-1.1 2.83-.988.315.606.36 2.179.067 2.942.72.854 1.101 2 1.101 3.167 0 2.763-2.089 4.852-5.098 5.234.763.494 1.28 1.572 1.28 2.807v2.336c0 .674.561 1.056 1.235.786 4.066-1.55 7.255-5.615 7.255-10.646C23.5 6.188 18.334 1 11.978 1 5.62 1 .5 6.188.5 12.545c0 4.986 3.167 9.12 7.435 10.669.606.225 1.19-.18 1.19-.786V20.63a2.9 2.9 0 0 1-1.078.224c-1.483 0-2.359-.808-2.987-2.313-.247-.607-.517-.966-1.034-1.033-.27-.023-.359-.135-.359-.27 0-.27.45-.471.898-.471.652 0 1.213.404 1.797 1.235.45.651.921.943 1.483.943.561 0 .92-.202 1.437-.719.382-.381.674-.718.944-.943" /></svg>
+              <span>GitHub</span>
+            </a>
+          </nav>
+        </header>
+        <div class="hero-content wrap">
+          <div class="hero-copy">
+            <h1 id="hero-title">给文件加密，<br>随身带着走。</h1>
+            <p class="hero-description">不用注册，离线也能用。</p>
+            <div class="hero-actions">
+              <a class="primary-link px-8 py-4 font-semibold text-lg rounded-full transition-colors active:scale-[0.98]" href="https://github.com/bro-know-my-org/BroKnowMyTrove/releases" target="_blank" rel="noopener noreferrer" aria-label="下载：前往 GitHub Releases（新窗口）">下载 <span aria-hidden="true">↓</span></a>
+              <a class="secondary-link px-8 py-4 font-semibold text-lg rounded-full transition-colors active:scale-[0.98]" href="#experience">如何使用 <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="hero-platforms">Windows / macOS / Linux <span>GUI + CLI</span></p>
+          </div>
+        </div>
+        <a class="scroll-cue" href="#experience">向下了解 <span aria-hidden="true">↓</span></a>
+      </section>
+      <section id="experience" class="experience wrap" aria-labelledby="experience-title">
+        <div class="experience-layout">
+          <aside class="usage" aria-label="如何使用">
+            <h2 id="experience-title">这样用。</h2>
+            <ol class="usage-steps">
+              <li><span aria-hidden="true">01</span><div><h3>解锁</h3><p>打开应用，选择保险库并输入密码。</p></div></li>
+              <li><span aria-hidden="true">02</span><div><h3>存入</h3><p>把文件拖进应用窗口，原文件保留。</p></div></li>
+              <li><span aria-hidden="true">03</span><div><h3>取出</h3><p>在文件列表中选择文件，再导出。</p></div></li>
+              <li><span aria-hidden="true">04</span><div><h3>锁定</h3><p>使用完毕，点击「锁定」收好文件。</p></div></li>
+            </ol>
+          </aside>
+        </div>
+        <footer class="site-footer"><span>兄弟懂我的保险箱 · BKMT</span><p>测试版本，尚未经独立安全审计。请保留文件备份。</p><a href="#top">回到顶部 ↑</a></footer>
+      </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
