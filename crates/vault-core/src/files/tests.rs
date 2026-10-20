@@ -19,6 +19,36 @@ fn fixture() -> (tempfile::TempDir, Vault, Password) {
 }
 
 #[test]
+fn import_names_respect_portable_collisions_scope_trash_and_length() {
+    let (_directory, mut vault, _) = fixture();
+    let op = Operation::default();
+    let first = vault.mkdir(None, "café.txt", &op).unwrap();
+    let second = vault.mkdir(None, "CAFE\u{301} (1).TXT", &op).unwrap();
+    assert_eq!(
+        vault.child_named(None, "CAFE\u{301}.TXT").unwrap().id,
+        first
+    );
+    assert!(vault.child_named(Some(first), "café.txt").is_none());
+    assert_eq!(
+        vault.available_name(None, "café.txt").unwrap(),
+        "café (2).txt"
+    );
+    vault.trash_entry(second, &op).unwrap();
+    assert_eq!(
+        vault.available_name(None, "café.txt").unwrap(),
+        "café (1).txt"
+    );
+    for name in [
+        format!("{}.txt", "中".repeat(78)),
+        format!("a.{}", "x".repeat(238)),
+    ] {
+        let generated = vault.available_name(None, &name).unwrap();
+        assert!(generated.len() <= 240);
+        validate_name(&generated).unwrap();
+    }
+}
+
+#[test]
 fn disk_roundtrip_reopen_unicode_empty_and_chunk_boundary() {
     let (directory, mut vault, _) = fixture();
     let mut expected = Vec::new();

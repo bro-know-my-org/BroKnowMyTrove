@@ -13,6 +13,49 @@ use std::{
 };
 
 impl Vault {
+    /// Finds an active sibling using the vault's portable, Unicode-aware name rules.
+    pub fn child_named(&self, parent: Option<Id>, name: &str) -> Option<&Entry> {
+        let key = model::name_key(name);
+        self.entries().find(|entry| {
+            !entry.is_trashed() && entry.parent == parent && model::name_key(&entry.name) == key
+        })
+    }
+
+    /// Chooses a portable unused name, preserving the extension where possible.
+    pub fn available_name(&self, parent: Option<Id>, name: &str) -> Result<String> {
+        validate_name(name)?;
+        let occupied: std::collections::HashSet<_> = self
+            .entries()
+            .filter(|entry| !entry.is_trashed() && entry.parent == parent)
+            .map(|entry| model::name_key(&entry.name))
+            .collect();
+        let (stem, extension) = name
+            .rsplit_once('.')
+            .filter(|(stem, _)| !stem.is_empty())
+            .map_or((name, String::new()), |(stem, ext)| {
+                (stem, format!(".{ext}"))
+            });
+        for index in 1..=occupied.len() + 1 {
+            let suffix = format!(" ({index})");
+            let (stem, extension) = if suffix.len() + extension.len() < 240 {
+                (stem, extension.as_str())
+            } else {
+                (name, "")
+            };
+            let budget = 240 - suffix.len() - extension.len();
+            let mut stem = stem.to_owned();
+            while stem.len() > budget {
+                stem.pop();
+            }
+            let candidate = format!("{stem}{suffix}{extension}");
+            validate_name(&candidate)?;
+            if !occupied.contains(&model::name_key(&candidate)) {
+                return Ok(candidate);
+            }
+        }
+        Err(Error::ResourceLimit)
+    }
+
     /// Copies a regular file into a new immutable object. The source is never removed.
     pub fn import_file(
         &mut self,
