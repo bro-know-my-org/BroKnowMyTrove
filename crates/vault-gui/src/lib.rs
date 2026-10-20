@@ -556,7 +556,11 @@ impl VaultApp {
         }
     }
 
-    fn browse(&mut self, ui: &mut egui::Ui) -> Option<Action> {
+    fn browse(
+        &mut self,
+        ui: &mut egui::Ui,
+        drag_support: std::result::Result<(), TextKey>,
+    ) -> Option<Action> {
         let locale = self.locale;
         let session = self.session.as_mut().expect("unlocked session");
         if let Some(recovery) = &mut session.recovery {
@@ -713,11 +717,7 @@ impl VaultApp {
                 }
                 theme::caption(
                     ui,
-                    locale.text(if drag_export::SUPPORTED {
-                        TextKey::DragExportHint
-                    } else {
-                        TextKey::DragExportUnavailable
-                    }),
+                    locale.text(drag_support.map_or_else(|key| key, |()| TextKey::DragExportHint)),
                 );
                 theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
@@ -771,7 +771,7 @@ impl VaultApp {
                                     .truncate(),
                                 );
                                 if response.drag_started()
-                                    && drag_export::SUPPORTED
+                                    && drag_support.is_ok()
                                     && matches!(entry.kind, EntryKind::File { .. })
                                     && !self.exports.busy()
                                     && !self.editor.confirming()
@@ -819,6 +819,11 @@ impl VaultApp {
 }
 
 impl eframe::App for VaultApp {
+    #[cfg(target_os = "linux")]
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.exports.input(ctx, raw);
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.exports.observe_gesture(ctx);
         // Hidden windows still run logic; their egui input time/events may be stale.
@@ -929,7 +934,9 @@ impl eframe::App for VaultApp {
                     });
                 } else if self.session.is_some() {
                     let action = ui
-                        .add_enabled_ui(self.picker.is_none(), |ui| self.browse(ui))
+                        .add_enabled_ui(self.picker.is_none(), |ui| {
+                            self.browse(ui, drag_export::support(frame))
+                        })
                         .inner;
                     if let Some(action) = action {
                         self.start_action(action, &ctx);

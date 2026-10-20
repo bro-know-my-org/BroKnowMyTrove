@@ -676,7 +676,7 @@ fn m6_browser_frame_baseline() {
                     ..Default::default()
                 },
                 |ui| {
-                    let _ = app.browse(ui);
+                    let _ = app.browse(ui, Err(TextKey::DragExportUnavailable));
                 },
             );
             std::hint::black_box(output);

@@ -9,10 +9,28 @@ use std::{
 use vault_core::{Error, Id, Result, Vault, operation::Operation};
 use vault_i18n::TextKey;
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(target_os = "linux")]
 mod x11;
 
-pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+pub fn support(frame: &eframe::Frame) -> std::result::Result<(), TextKey> {
+    #[cfg(target_os = "linux")]
+    {
+        if x11::window(frame).is_none() {
+            return Err(TextKey::DragExportX11Required);
+        }
+        if !x11::local_display(None) {
+            return Err(TextKey::DragExportX11Transport);
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = frame;
+        cfg!(any(windows, target_os = "macos"))
+            .then_some(())
+            .ok_or(TextKey::DragExportUnavailable)
+    }
+}
 
 pub struct Prepared {
     directory: tempfile::TempDir,
@@ -54,6 +72,8 @@ pub struct Exports {
     cleanup: Vec<Prepared>,
     preparing: Option<bool>,
     outcome: Arc<AtomicU8>,
+    #[cfg(target_os = "linux")]
+    native: Option<x11::Drag>,
 }
 
 impl Exports {
@@ -84,6 +104,10 @@ impl Exports {
     }
 
     pub fn lock(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            self.native = None;
+        }
         self.preparing = None;
         self.outcome = Arc::default(); // Ignore callbacks from a canceled session.
         self.cleanup.extend(self.active.take());
@@ -108,23 +132,40 @@ impl Exports {
     }
 
     pub fn poll(&mut self, ctx: &egui::Context) -> Option<TextKey> {
+        #[cfg(target_os = "linux")]
+        if let Some(native) = &self.native {
+            native.poll();
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         let was_dirty = self.needs_cleanup();
         let outcome = self.outcome.swap(0, Ordering::SeqCst);
         if outcome != 0 {
+            #[cfg(target_os = "linux")]
+            {
+                self.native = None;
+            }
             // Native drag loops may consume the release without notifying egui.
             ctx.stop_dragging();
             ctx.input_mut(|input| input.pointer = egui::PointerState::default());
         }
         let message = match outcome {
-            1 => {
+            1 | 4 => {
                 if let Some(export) = self.active.take() {
                     self.retained.push(export);
                 }
-                Some(TextKey::DragExportDropped)
+                Some(if outcome == 1 {
+                    TextKey::DragExportDropped
+                } else {
+                    TextKey::DragExportUnconfirmed
+                })
             }
             2 => {
                 self.cleanup.extend(self.active.take());
                 Some(TextKey::DragExportCancelled)
+            }
+            3 => {
+                self.cleanup.extend(self.active.take());
+                Some(TextKey::DragExportUnavailable)
             }
             _ => None,
         };
@@ -153,6 +194,13 @@ impl Exports {
             };
         }
         self.outcome = Arc::default();
+        #[cfg(target_os = "linux")]
+        let result = {
+            self.native =
+                x11::Drag::start(frame, &prepared.path, self.outcome.clone(), ctx.clone()).ok();
+            self.native.is_some()
+        };
+        #[cfg(not(target_os = "linux"))]
         let result = native_start(frame, &prepared.path, self.outcome.clone(), ctx.clone());
         if result {
             self.active = Some(prepared);
@@ -165,6 +213,13 @@ impl Exports {
             } else {
                 TextKey::DragExportUnavailable
             }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn input(&self, ctx: &egui::Context, raw: &egui::RawInput) {
+        if let Some(native) = &self.native {
+            native.input(ctx, raw);
         }
     }
 }
@@ -201,7 +256,7 @@ fn native_start(
     .is_ok()
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn native_start(
     _: &eframe::Frame,
     _: &std::path::Path,
