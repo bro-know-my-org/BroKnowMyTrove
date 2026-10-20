@@ -1,3 +1,5 @@
+@import './demo.css';
+
 :root { font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; color: #f4f7f4; background: #090d0b; font-synthesis: none; line-height: 1.6; color-scheme: dark; --muted: #bac4be; --line: #ffffff24; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-snap-type: y mandatory; }
