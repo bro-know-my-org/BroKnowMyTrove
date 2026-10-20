@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 mod actions;
 mod credentials_ui;
 mod drag_export;
+mod drop_import;
 mod files_ui;
 mod picker;
 mod session;
@@ -217,10 +218,11 @@ impl VaultApp {
             && !self.browser.trash
             && !self.editor.confirming()
             && !self.exports.busy()
-            && self
-                .session
-                .as_ref()
-                .is_some_and(|session| session.recovery.is_none() && session.vault.is_writable())
+            && self.session.as_ref().is_some_and(|session| {
+                session.recovery.is_none()
+                    && session.import_drop.is_none()
+                    && session.vault.is_writable()
+            })
     }
 
     fn import_drop(&mut self, ctx: &egui::Context) {
@@ -244,7 +246,10 @@ impl VaultApp {
             .into_iter()
             .map(|file| file.path().to_owned())
             .collect();
-        self.start_action(Action::ImportDrop(self.browser.parent, sources), ctx);
+        self.start_action(
+            Action::ImportDrop(drop_import::Batch::new(self.browser.parent, sources)),
+            ctx,
+        );
     }
 
     fn lock(&mut self, ctx: &egui::Context) {
@@ -934,9 +939,11 @@ impl eframe::App for VaultApp {
                     });
                 } else if self.session.is_some() {
                     let action = ui
-                        .add_enabled_ui(self.picker.is_none(), |ui| {
-                            self.browse(ui, drag_export::support(frame))
-                        })
+                        .add_enabled_ui(
+                            self.picker.is_none()
+                                && self.session.as_ref().unwrap().import_drop.is_none(),
+                            |ui| self.browse(ui, drag_export::support(frame)),
+                        )
                         .inner;
                     if let Some(action) = action {
                         self.start_action(action, &ctx);
@@ -984,6 +991,7 @@ impl eframe::App for VaultApp {
             );
         }
         self.import_drop(&ctx);
+        self.drop_conflict_ui(&ctx);
     }
 }
 

@@ -347,7 +347,7 @@ fn drop_files(app: &mut VaultApp, ctx: &egui::Context, paths: Vec<Option<std::pa
 }
 
 #[test]
-fn dropping_files_encrypts_into_current_folder_and_reports_partial_conflicts() {
+fn dropping_files_encrypts_into_current_folder_and_pauses_at_conflicts() {
     let ctx = egui::Context::default();
     let temp = tempfile::tempdir().unwrap();
     let mut app = VaultApp::default();
@@ -390,9 +390,190 @@ fn dropping_files_encrypts_into_current_folder_and_reports_partial_conflicts() {
     std::fs::write(&third, b"third").unwrap();
     drop_files(&mut app, &ctx, vec![Some(third), Some(first)]);
     wait(&mut app, &ctx);
-    assert!(app.notice.render(Locale::ZhCn).contains("1/2"));
-    assert!(app.notice.render(Locale::EnUs).contains("conflict"));
+    assert!(app.notice.render(Locale::EnUs).contains("already exists"));
+    assert!(app.session.as_ref().unwrap().import_drop.is_some());
+    assert!(!app.can_import_drop());
+    app.resolve_drop(Some(crate::drop_import::Choice::Skip), &ctx);
+    wait(&mut app, &ctx);
+    assert!(
+        app.notice
+            .render(Locale::EnUs)
+            .contains("1/2 files; skipped 1")
+    );
     assert_eq!(app.session.as_ref().unwrap().vault.entries().count(), 4);
+}
+
+#[test]
+fn repeated_drop_shows_a_modal_and_escape_or_lock_discards_pending_files() {
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = VaultApp {
+        locale: Locale::EnUs,
+        ..Default::default()
+    };
+    create(&mut app, &temp.path().join("vault"), &ctx);
+    wait(&mut app, &ctx);
+    app.session.as_mut().unwrap().recovery = None;
+    let source = temp.path().join("repeat.txt");
+    std::fs::write(&source, b"original").unwrap();
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    wait(&mut app, &ctx);
+    let commit = app.session.as_ref().unwrap().vault.current_commit();
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    wait(&mut app, &ctx);
+    let mut visible = false;
+    for _ in 0..3 {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |_ui| app.drop_conflict_ui(&ctx),
+        );
+        visible |= output.shapes.iter().any(|shape| matches!(
+            &shape.shape, egui::Shape::Text(text) if text.galley.text().contains("already exists")
+        ));
+        output.textures_delta.clear();
+    }
+    assert!(
+        visible,
+        "a repeated drop must visibly display the conflict modal"
+    );
+    // Render a stable modal before sending Escape, including egui's modal-layer bookkeeping.
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            ..Default::default()
+        },
+        |_ui| app.drop_conflict_ui(&ctx),
+    );
+    output.textures_delta.clear();
+    assert!(app.session.as_ref().unwrap().import_drop.is_none());
+    assert!(matches!(
+        app.notice,
+        Message::Imported(0, 1, 0, Some(Error::Cancelled))
+    ));
+    assert_eq!(app.session.as_ref().unwrap().vault.current_commit(), commit);
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    wait(&mut app, &ctx);
+    app.lock(&ctx);
+    assert!(app.session.is_none() && app.task.is_none());
+    assert_eq!(std::fs::read(source).unwrap(), b"original");
+}
+
+#[test]
+fn drop_conflict_choices_continue_the_batch_and_never_replace_a_folder() {
+    use crate::drop_import::Choice;
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = VaultApp::default();
+    create(&mut app, &temp.path().join("vault"), &ctx);
+    wait(&mut app, &ctx);
+    app.session.as_mut().unwrap().recovery = None;
+    let source = temp.path().join("café.txt");
+    let alias = temp.path().join("CAFE\u{301}.TXT");
+    let fresh = temp.path().join("fresh.txt");
+    for path in [&source, &alias, &fresh] {
+        std::fs::write(path, b"original").unwrap();
+    }
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    wait(&mut app, &ctx);
+    let id = entry_id(&app, "café.txt");
+    std::fs::write(&alias, b"new").unwrap();
+    drop_files(
+        &mut app,
+        &ctx,
+        vec![
+            Some(alias.clone()),
+            Some(alias.clone()),
+            Some(fresh.clone()),
+        ],
+    );
+    wait(&mut app, &ctx);
+    app.session
+        .as_mut()
+        .unwrap()
+        .import_drop
+        .as_mut()
+        .unwrap()
+        .apply_all = true;
+    app.resolve_drop(Some(Choice::Rename), &ctx);
+    wait(&mut app, &ctx);
+    assert!(app.notice.render(Locale::EnUs).contains("3/3"));
+    let vault = &app.session.as_ref().unwrap().vault;
+    for (name, expected) in [
+        ("café.txt", b"original".as_slice()),
+        ("CAFE\u{301} (1).TXT", b"new"),
+        ("CAFE\u{301} (2).TXT", b"new"),
+    ] {
+        let output = temp.path().join(format!("out-{name}"));
+        vault
+            .export_file(
+                vault.child_named(None, name).unwrap().id,
+                &output,
+                &Operation::default(),
+            )
+            .unwrap();
+        assert_eq!(std::fs::read(output).unwrap(), expected);
+    }
+    act(
+        &mut app,
+        &ctx,
+        Action::Mkdir(None, Zeroizing::new("folder.txt".into())),
+    );
+    let folder = temp.path().join("folder.txt");
+    std::fs::write(&folder, b"cannot replace a directory").unwrap();
+    drop_files(
+        &mut app,
+        &ctx,
+        vec![Some(alias.clone()), Some(folder), Some(fresh)],
+    );
+    wait(&mut app, &ctx);
+    app.session
+        .as_mut()
+        .unwrap()
+        .import_drop
+        .as_mut()
+        .unwrap()
+        .apply_all = true;
+    app.resolve_drop(Some(Choice::Replace), &ctx);
+    wait(&mut app, &ctx);
+    assert!(
+        !app.session
+            .as_ref()
+            .unwrap()
+            .import_drop
+            .as_ref()
+            .unwrap()
+            .can_replace
+    );
+    app.resolve_drop(Some(Choice::Skip), &ctx);
+    wait(&mut app, &ctx);
+    assert!(
+        app.notice
+            .render(Locale::EnUs)
+            .contains("1/3 files; skipped 2")
+    );
+    let vault = &app.session.as_ref().unwrap().vault;
+    let output = temp.path().join("replaced");
+    vault
+        .export_file(id, &output, &Operation::default())
+        .unwrap();
+    assert_eq!(std::fs::read(output).unwrap(), b"new");
+    assert!(matches!(
+        vault.child_named(None, "folder.txt").unwrap().kind,
+        EntryKind::Directory
+    ));
+    assert_eq!(std::fs::read(alias).unwrap(), b"new");
 }
 
 #[test]
@@ -633,6 +814,7 @@ fn m6_browser_frame_baseline() {
     let mut app = VaultApp {
         session: Some(Session {
             drag_export: None,
+            import_drop: None,
             vault,
             recovery: None,
         }),

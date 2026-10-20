@@ -129,6 +129,14 @@ texts! {
     DropImportReady: "松开即可加密导入当前目录", "Release to encrypt and import into this folder";
     DropUnavailable: "此时无法拖入；请解锁可写保险库、退出回收站并等待当前操作结束。", "Cannot accept files now. Unlock a writable vault, leave trash, and wait for the current operation.";
     DropFilesOnly: "请拖入普通文件（最多 1000 个）；暂不支持文件夹、链接或无本地路径的项目。", "Drop regular files (up to 1000); folders, links and items without local paths are not supported.";
+    DropConflict: "当前目录已存在同名项目", "An item with this name already exists in this folder";
+    DropConflictHint: "请选择处理方式；确认替换会更新保险库中同名文件的内容，外部源文件不变。", "Choose an action. Confirm replace updates the vault file's contents; the external source is preserved.";
+    DropConflictDirectory: "同名项目是目录，不能用文件替换；请选择跳过或自动重命名。", "The existing item is a folder. Choose skip or auto-rename; it cannot be replaced with a file.";
+    DropSkip: "跳过", "Skip";
+    DropRename: "自动重命名", "Auto-rename";
+    DropReplace: "确认替换", "Confirm replace";
+    DropApplyAll: "应用到本批后续同名项目", "Apply to remaining conflicts in this batch";
+    DropCancel: "停止本批导入", "Stop this batch";
     DragExportHint: "按住文件拖到系统目录即可解密复制；临时明文在锁定或退出时清理。", "Hold and drag a file to a system folder to decrypt a copy; temporary plaintext is removed on lock or exit.";
     DragExportHold: "拖出文件时请按住鼠标，等待解密后再松开。", "When dragging a file out, keep holding the mouse until decryption finishes.";
     DragExportActive: "请拖到目标目录松开；保险库中的文件会保留。", "Release over the destination folder; the vault file is preserved.";

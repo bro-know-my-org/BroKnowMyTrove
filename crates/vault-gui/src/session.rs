@@ -25,6 +25,7 @@ pub struct Session {
     pub vault: Vault,
     pub recovery: Option<Zeroizing<String>>,
     pub drag_export: Option<crate::drag_export::Prepared>,
+    pub import_drop: Option<crate::drop_import::Batch>,
 }
 
 impl Request {
@@ -77,6 +78,7 @@ impl Request {
                 vault,
                 recovery: recovery.map(|key| key.encode()).transpose()?,
                 drag_export: None,
+                import_drop: None,
             }),
             result: Ok(Message::Empty),
         })
