@@ -88,6 +88,11 @@ impl KeyFile {
     }
 
     pub(crate) fn rewrap_password(&mut self, master: &Secret, password: &Password) -> Result<()> {
+        // Recovery does not authenticate the stored KDF. Never reissue a password
+        // slot below the trusted production floor, even for old/test key files.
+        let minimum = KdfParams::default();
+        self.kdf.operations = self.kdf.operations.max(minimum.operations);
+        self.kdf.memory_bytes = self.kdf.memory_bytes.max(minimum.memory_bytes);
         self.salt = crypto::random_array()?;
         let wrapping = self.kdf.derive(password, &self.salt)?;
         self.password = crypto::seal(&wrapping, &self.password_aad(), master.0.as_slice())?;
@@ -115,6 +120,30 @@ impl KeyFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewrap_preserves_stronger_stored_kdf_components() {
+        let password = Password::new("测试重新包装".into()).unwrap();
+        let (mut header, master, _) = KeyFile::create(
+            &password,
+            CreateOptions {
+                kdf: KdfParams {
+                    operations: 1,
+                    memory_bytes: 8 * 1024 * 1024,
+                },
+                recovery_key: false,
+            },
+        )
+        .unwrap();
+        header.kdf.operations = KdfParams::default().operations + 1;
+        header.rewrap_password(&master, &password).unwrap();
+        assert_eq!(header.kdf.operations, KdfParams::default().operations + 1);
+        assert_eq!(header.kdf.memory_bytes, KdfParams::default().memory_bytes);
+        assert_eq!(
+            *header.unlock(Credential::Password(&password)).unwrap().0,
+            *master.0
+        );
+    }
 
     #[test]
     fn header_roundtrip_recovery_wrong_password_and_resource_rejection() {

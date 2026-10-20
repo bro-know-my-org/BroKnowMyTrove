@@ -16,6 +16,44 @@ fn options() -> CreateOptions {
 }
 
 #[test]
+fn recovery_password_reset_does_not_republish_tampered_weak_kdf() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("vault");
+    let old = password("原始密码");
+    let new = password("恢复后的新密码");
+    let (mut vault, recovery) = Vault::create(
+        &path,
+        &old,
+        CreateOptions {
+            recovery_key: true,
+            ..CreateOptions::default()
+        },
+    )
+    .unwrap();
+    vault
+        .mkdir(None, "保留数据", &Operation::default())
+        .unwrap();
+    drop(vault);
+    let file = path.join("keys.json");
+    let mut header: KeyFile = codec::decode(&fs::read(&file).unwrap(), codec::KEY_LIMIT).unwrap();
+    header.kdf = options().kdf;
+    fs::write(&file, codec::encode(&header, codec::KEY_LIMIT).unwrap()).unwrap();
+    assert!(Vault::open(&path, Credential::Password(&old), OpenMode::ReadOnly).is_err());
+    let key = recovery.unwrap();
+    let mut vault = Vault::open(&path, Credential::Recovery(&key), OpenMode::ReadWrite).unwrap();
+    vault.change_password(&new, &Operation::default()).unwrap();
+    drop(vault);
+    let updated: KeyFile = codec::decode(&fs::read(&file).unwrap(), codec::KEY_LIMIT).unwrap();
+    assert!(updated.kdf.operations >= KdfParams::default().operations);
+    assert!(updated.kdf.memory_bytes >= KdfParams::default().memory_bytes);
+    assert_eq!(header.recovery, updated.recovery);
+    let vault = Vault::open(&path, Credential::Password(&new), OpenMode::ReadWrite).unwrap();
+    assert_eq!(vault.search("保留数据", false).count(), 1);
+    drop(vault);
+    assert!(Vault::open(&path, Credential::Recovery(&key), OpenMode::ReadOnly).is_ok());
+}
+
+#[test]
 fn password_update_keeps_master_recovery_data_and_updates_backup_cache() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("vault");
@@ -31,7 +69,8 @@ fn password_update_keeps_master_recovery_data_and_updates_backup_cache() {
     let next: KeyFile = codec::decode(&vault.key_bytes, codec::KEY_LIMIT).unwrap();
     assert_eq!(previous.vault_id, next.vault_id);
     assert_eq!(previous.recovery, next.recovery);
-    assert_eq!(previous.kdf.memory_bytes, next.kdf.memory_bytes);
+    assert_eq!(next.kdf.memory_bytes, KdfParams::default().memory_bytes);
+    assert_eq!(next.kdf.operations, KdfParams::default().operations);
     assert_ne!(previous.salt, next.salt);
     assert_eq!(vault.current_commit(), current);
     assert_eq!(

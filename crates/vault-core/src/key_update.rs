@@ -21,7 +21,8 @@ impl Vault {
         Ok(())
     }
 
-    /// Rewraps the same master key, keeping the KDF parameters and recovery slot.
+    /// Rewraps the same master key, raising KDF parameters to the production
+    /// minimum while preserving stronger stored values and the recovery slot.
     /// Old credentials with old key-file copies still decrypt the same master key.
     pub fn change_password(&mut self, password: &Password, operation: &Operation) -> Result<()> {
         let mut header = self.key_header(operation)?;
