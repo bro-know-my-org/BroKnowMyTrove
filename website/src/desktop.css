@@ -1,0 +1,107 @@
+.demo .demo-body { display: block; }
+.desktop-scene { position: relative; isolation: isolate; overflow: hidden; border-radius: 12px; border: 1px solid #ffffff24; background: radial-gradient(ellipse at 75% 70%, #23372b66, transparent 65%), #141b17; }
+.desktop-scene::before { content: ''; position: absolute; z-index: -1; width: 70%; height: 850px; border: 1px solid #d1e8ee13; border-radius: 50%; transform: rotate(-35deg); top: -250px; left: 15%; box-shadow: 0 0 0 45px #c3e0e408, 0 0 0 100px #c3e0e405; }
+.desktop-menubar { display: flex; gap: 22px; align-items: center; height: 29px; padding-inline: 18px; background: #0d120f; color: #e6edf0; font-size: 9px; }
+.desktop-menubar b { font-size: 10px; }
+.desktop-menubar > span:last-child { margin-left: auto; color: #c1ced3; font-size: 8px; }
+.desktop-workspace { display: grid; grid-template-columns: 90px minmax(0, 1fr) 105px; gap: 16px; padding: 25px 18px 22px; align-items: start; }
+.desktop-sources > p { color: #d7e2e7a0; font-size: 9px; text-align: center; margin-bottom: 8px; letter-spacing: 1px; }
+.desktop-file { width: 100%; display: grid; justify-items: center; gap: 6px; background: transparent; color: #f5f6f8; border: 1px solid transparent; border-radius: 6px; padding: 10px 3px; font-size: 9px; line-height: 1.5; text-shadow: 0 1px 3px #1c303977; cursor: grab; touch-action: none; user-select: none; }
+.desktop-file:hover, .desktop-file:focus-visible { background: #dcecff16; border-color: #dcecff35; }
+.desk-icon { position: relative; }
+.desk-icon > i { position: absolute; right: -5px; bottom: -1px; background: #6b8d66; border: 2px solid #526c79; border-radius: 50%; width: 17px; height: 17px; color: white; font: 10px/13px system-ui; }
+.desk-document { display: grid; place-items: center; width: 39px; height: 48px; border-radius: 4px 10px 4px 4px; background: #e9e6e0; box-shadow: 0 3px 8px #152a4033; text-shadow: none; color: #677b92; position: relative; }
+.desk-document::after { content: ''; position: absolute; right: 0; top: 0; border-left: 9px solid #00000014; border-top: 9px solid #72919a; }
+.desk-document svg { width: 21px; height: 21px; padding-top: 2px; }
+.desk-document small { font: 7px/1 ui-monospace, monospace; letter-spacing: .5px; padding-bottom: 3px; }
+.desk-document.peach { background: #f1e0cc; color: #9b7957; }
+.desk-document.sage { background: #d8e4d2; color: #718266; }
+.desk-document.lavender { background: #e2dcef; color: #8d7ba4; }
+#desktop .app-window { min-width: 0; margin-top: 16px; box-shadow: 0 15px 35px #132a4055, 0 0 0 1px #ffffff15; }
+.vault-stage { min-width: 0; min-height: 655px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; transition: min-height .65s ease; }
+.vault-projection { width: 100%; display: grid; grid-template-rows: 1fr; opacity: 1; transform-origin: bottom center; transition: grid-template-rows .65s ease, opacity .45s ease, transform .65s ease; }
+.vault-projection > .app-window { min-height: 0; }
+.vault-beam { width: 80%; height: 43px; flex-shrink: 0; background: linear-gradient(0deg, #bfdec340, #bfdec305); clip-path: polygon(0 0, 100% 0, 58% 100%, 42% 100%); transition: height .65s ease, opacity .4s; }
+.vault-folder { position: relative; display: grid; justify-items: center; gap: 5px; border: 0; background: transparent; padding: 5px 15px 8px; border-radius: 8px; color: #edf5fa; cursor: pointer; }
+.vault-folder:hover, .vault-folder:focus-visible { background: #dcecff12; }
+.vault-folder-icon { position: relative; display: block; width: 76px; height: 54px; margin-top: 7px; border-radius: 5px; background: #75937d; box-shadow: 0 9px 16px #00000033; }
+.vault-folder-icon::before { content: ''; position: absolute; top: -7px; left: 0; width: 31px; height: 10px; background: #75937d; border-radius: 5px 6px 0 0; }
+.vault-folder-front { position: absolute; inset: 7px -2px -1px; display: flex; align-items: center; justify-content: space-between; padding: 10px; border: 1px solid #d5ebd65c; border-radius: 4px 4px 6px 6px; background: linear-gradient(145deg, #bad0ba, #88a28e); transform-origin: bottom; transition: transform .5s, background .5s; }
+.vault-monogram { display: block; width: 28px; height: 28px; }
+.app-title-icon { flex-shrink: 0; margin-right: -8px; }
+.vault-lock { display: grid; place-items: center; width: 19px; height: 23px; border-radius: 5px; background: #33576c; color: #d9eef8; transition: opacity .3s, transform .3s; }
+.vault-lock svg { width: 13px; height: 15px; }
+.vault-papers { position: absolute; inset: 2px 6px 0; }
+.vault-papers i { position: absolute; inset: 0; background: #dae6ea; border: 1px solid #aac5d3; border-radius: 3px; transition: transform .5s; }
+.vault-papers i:nth-child(2) { transform: rotate(4deg); }
+.vault-papers i:nth-child(3) { transform: rotate(-4deg); }
+.vault-folder > strong { font-size: 11px; font-weight: 500; margin-top: 4px; text-shadow: 0 1px 3px #183445; }
+.vault-folder > span:last-child { color: #c3d9e3; font-size: 8px; font-variant-numeric: tabular-nums; }
+.is-open .vault-folder-front { transform: perspective(200px) rotateX(-17deg); }
+.is-open .vault-papers i { transform: translateY(-5px); }
+.is-open .vault-papers i:nth-child(2) { transform: translateY(-8px) rotate(4deg); }
+.is-open .vault-papers i:nth-child(3) { transform: translateY(-6px) rotate(-4deg); }
+.is-open .vault-lock { opacity: 0; transform: translateY(4px); }
+.vault-closed-note { max-height: 0; overflow: hidden; opacity: 0; text-align: center; font-size: 11px; color: #d4e3ea; transition: opacity .5s, max-height .65s; }
+.is-stowed .vault-projection { grid-template-rows: 0fr; opacity: 0; transform: translateY(50px) scale(.25); pointer-events: none; }
+.vault-stage.is-stowed { min-height: 330px; }
+#desktop .is-stowed .app-window { margin-top: 0; border-width: 0; }
+.is-stowed .vault-beam { height: 0; opacity: 0; }
+.is-stowed .vault-closed-note { max-height: 50px; opacity: 1; padding-bottom: 22px; }
+.desktop-output { display: flex; flex-direction: column; align-items: center; gap: 9px; min-height: 245px; margin-top: 50px; border: 1px dashed #d9eff23d; background: #daeef008; color: #edf3f4; padding: 17px 8px; border-radius: 8px; font-size: 9px; transition: background .2s, outline .2s; }
+.output-folder { width: 43px; height: 33px; background: #89a590; color: #f1f9ef; border-radius: 3px; font-size: 22px; position: relative; margin-top: 7px; }
+.output-folder::before { content: ''; position: absolute; width: 19px; height: 6px; top: -5px; left: 0; border-radius: 3px 3px 0 0; background: #89a590; }
+.desktop-output strong { font-size: 10px; font-weight: 500; margin-top: 6px; }
+.output-hint { color: #d1dfe3a6; font-size: 8px; line-height: 1.7; }
+#exported-files { display: grid; gap: 15px; }
+.exported-file { display: grid; justify-items: center; gap: 6px; font-size: 8px; overflow-wrap: anywhere; }
+.exported-file > small { font-size: 7px; color: #c4ddbc; }
+.desktop-hint { min-height: 20px; margin: 0 16px 12px; text-align: center; color: #e0e9eb; font-size: 10px; }
+#drag-trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 4; }
+#drag-trail path { stroke: #d8edffb3; stroke-width: 1.5; stroke-dasharray: 4 7; fill: none; }
+#drag-ghost { position: absolute; top: 0; left: 0; z-index: 5; pointer-events: none; display: grid; justify-items: center; gap: 5px; width: 105px; padding: 7px; background: #17364de0; border: 1px solid #d7eeff66; border-radius: 6px; color: white; box-shadow: 0 10px 20px #112a4d33; font-size: 9px; opacity: .95; }
+#drag-ghost[hidden] { display: none; }
+#drag-ghost b { font-size: 8px; background: #c0e8b7; border-radius: 3px; color: #294530; padding: 1px 5px; }
+.ghost-cursor { position: absolute; left: -8px; top: -12px; transform: rotate(-110deg); font-size: 20px; color: white; text-shadow: 0 1px 3px #102844; }
+#drag-ghost.invalid-drop b { background: #e9e0cb; color: #756442; }
+#desktop .drop-hover { outline: 2px solid #75baff; outline-offset: -2px; background-color: #3e648133; }
+#desktop .file-row { cursor: grab; touch-action: none; user-select: none; }
+#desktop .file-browser:focus-visible { outline-offset: -3px; }
+.demo .guide { padding: 16px 0 0; display: block; }
+.demo #steps { display: flex; gap: 8px; margin: 0; }
+.demo .step { justify-content: center; padding: 10px 4px; }
+.demo .step > span:last-child { display: none; }
+@media (max-width: 800px) {
+  .desktop-workspace { grid-template-columns: 68px minmax(0, 1fr) 80px; gap: 8px; padding: 15px 10px; }
+  .desktop-file { font-size: 8px; }
+  .desktop-output { padding: 14px 5px; }
+  .demo .step > span:first-child { display: none; }
+}
+@media (max-width: 580px) {
+  .desktop-workspace { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 10px 8px 12px; }
+  .desktop-sources { display: flex; gap: 5px; align-items: center; }
+  .desktop-sources > p { writing-mode: vertical-rl; margin: 0; font-size: 8px; }
+  #desktop-files { display: flex; flex: 1; justify-content: space-around; }
+  .desktop-file { width: 80px; padding: 5px 2px; }
+  .desk-document { width: 30px; height: 37px; }
+  .desk-document svg { width: 17px; height: 17px; }
+  #desktop .app-window { margin: 0; }
+  .vault-stage { min-height: 630px; }
+  .vault-stage.is-stowed { min-height: 210px; }
+  .vault-beam { height: 30px; }
+  .desktop-output { flex-direction: row; flex-wrap: wrap; justify-content: center; min-height: 76px; margin-top: 0; padding: 10px; }
+  .desktop-output .output-folder { width: 30px; height: 23px; font-size: 15px; margin: 4px 5px 0 0; }
+  .desktop-output strong { margin: 0; }
+  .output-hint { display: none; }
+  #exported-files { display: flex; flex-basis: 100%; justify-content: center; }
+  #exported-files:empty { display: none; }
+  .exported-file { grid-template-columns: auto auto; align-items: center; gap: 4px 8px; }
+  .exported-file .desk-document { grid-row: 1 / 3; }
+  .exported-file > small { grid-column: 2; }
+  .desktop-menubar > span:nth-child(2) { display: none; }
+  .desktop-menubar { padding-inline: 12px; }
+  .desktop-hint { font-size: 9px; min-height: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vault-stage, .vault-stage *, .vault-stage *::before { transition: none !important; }
+}
