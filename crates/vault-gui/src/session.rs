@@ -24,6 +24,7 @@ pub enum Request {
 pub struct Session {
     pub vault: Vault,
     pub recovery: Option<Zeroizing<String>>,
+    pub drag_export: Option<crate::drag_export::Prepared>,
 }
 
 impl Request {
@@ -75,6 +76,7 @@ impl Request {
             session: Some(Session {
                 vault,
                 recovery: recovery.map(|key| key.encode()).transpose()?,
+                drag_export: None,
             }),
             result: Ok(Message::Empty),
         })

@@ -9,6 +9,7 @@ pub enum Action {
     Import(Option<Id>, Zeroizing<String>, PathBuf),
     ImportDrop(Option<Id>, Vec<PathBuf>),
     Export(Id, PathBuf),
+    PrepareDrag(Id),
     Replace(Id, PathBuf),
     Rename(Id, Zeroizing<String>),
     Move(Id, Option<Id>),
@@ -72,6 +73,9 @@ impl Action {
                 return Ok(Message::Imported(total, total, None));
             }
             Self::Export(id, destination) => vault.export_file(id, &destination, operation)?,
+            Self::PrepareDrag(id) => {
+                crate::drag_export::prepare(session, id, operation)?;
+            }
             Self::Replace(id, source) => vault.replace_file(id, &source, operation)?,
             Self::Rename(id, name) => vault.rename(id, &name, operation)?,
             Self::Move(id, parent) => vault.move_entry(id, parent, operation)?,

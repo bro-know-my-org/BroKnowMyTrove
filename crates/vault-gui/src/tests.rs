@@ -2,7 +2,7 @@ use super::*;
 use std::{path::Path, thread, time::Instant};
 use vault_core::{Credential, OpenMode, Vault, crypto::KdfParams, operation::Operation};
 
-fn wait(app: &mut VaultApp, ctx: &egui::Context) {
+pub(super) fn wait(app: &mut VaultApp, ctx: &egui::Context) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while app.task.is_some() {
         assert!(Instant::now() < deadline, "GUI worker did not finish");
@@ -11,7 +11,7 @@ fn wait(app: &mut VaultApp, ctx: &egui::Context) {
     }
 }
 
-fn create(app: &mut VaultApp, path: &Path, ctx: &egui::Context) {
+pub(super) fn create(app: &mut VaultApp, path: &Path, ctx: &egui::Context) {
     let options = CreateOptions {
         kdf: KdfParams {
             operations: 1,
@@ -632,6 +632,7 @@ fn m6_browser_frame_baseline() {
     let count = vault.entries().count();
     let mut app = VaultApp {
         session: Some(Session {
+            drag_export: None,
             vault,
             recovery: None,
         }),

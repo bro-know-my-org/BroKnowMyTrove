@@ -9,6 +9,7 @@ use zeroize::Zeroizing;
 
 mod actions;
 mod credentials_ui;
+mod drag_export;
 mod files_ui;
 mod picker;
 mod session;
@@ -205,6 +206,7 @@ struct VaultApp {
     locale: Locale,
     notice: Message,
     last_activity: Option<Instant>,
+    exports: drag_export::Exports,
 }
 
 impl VaultApp {
@@ -214,6 +216,7 @@ impl VaultApp {
             && !self.close_when_done
             && !self.browser.trash
             && !self.editor.confirming()
+            && !self.exports.busy()
             && self
                 .session
                 .as_ref()
@@ -233,6 +236,10 @@ impl VaultApp {
             self.notice = TextKey::DropFilesOnly.into();
             return;
         }
+        if files.iter().any(|file| self.exports.contains(file.path())) {
+            self.notice = TextKey::DragExportCancelled.into();
+            return;
+        }
         let sources = files
             .into_iter()
             .map(|file| file.path().to_owned())
@@ -244,6 +251,17 @@ impl VaultApp {
         if let Some(task) = &self.task {
             task.operation.cancel();
             self.discard_result = true;
+        }
+        if let Some(prepared) = self
+            .session
+            .as_mut()
+            .and_then(|session| session.drag_export.take())
+        {
+            self.exports.discard(prepared);
+        }
+        self.exports.lock();
+        if let Some(message) = self.exports.poll(ctx) {
+            self.notice = message.into();
         }
         self.session = None;
         self.picker = None;
@@ -275,9 +293,16 @@ impl VaultApp {
                 self.notice = TextKey::PickerCancelled.into();
             }
         }
-        if let Some(result) = self.task.as_ref().and_then(Task::poll) {
+        if let Some(mut result) = self.task.as_ref().and_then(Task::poll) {
             self.task = None; // Join before accepting another operation.
             if self.discard_result {
+                if let Some(prepared) = result
+                    .session
+                    .as_mut()
+                    .and_then(|session| session.drag_export.take())
+                {
+                    self.exports.discard(prepared);
+                }
                 drop(result);
                 self.notice = TextKey::StoppedLocked.into();
             } else {
@@ -296,17 +321,33 @@ impl VaultApp {
                         self.notice = message;
                         self.last_activity = Some(Instant::now());
                     }
-                    Err(error) => self.notice = Message::Error(ErrorContext::Operation, error),
+                    Err(error) => {
+                        if let Some(prepared) = self
+                            .session
+                            .as_mut()
+                            .and_then(|session| session.drag_export.take())
+                        {
+                            self.exports.discard(prepared);
+                        }
+                        self.notice = Message::Error(ErrorContext::Operation, error);
+                    }
                 }
                 if self.session.is_none() {
                     self.lock(ctx);
                 }
             }
             self.discard_result = false;
-            if self.close_when_done {
-                self.lock(ctx);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+        }
+        if let Some(message) = self.exports.poll(ctx)
+            && (!matches!(
+                message,
+                TextKey::DragCleanupFailed | TextKey::DragCleanupDone
+            ) || !matches!(self.notice, Message::Error(..)))
+        {
+            self.notice = message.into();
+        }
+        if self.close_when_done && self.task.is_none() && !self.exports.needs_cleanup() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
@@ -323,11 +364,11 @@ impl VaultApp {
             self.notice = TextKey::IdleLocked.into();
         }
         if close {
-            self.close_when_done = self.task.is_some();
+            self.lock(ctx);
+            self.close_when_done = self.task.is_some() || self.exports.needs_cleanup();
             if self.close_when_done {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
-            self.lock(ctx);
             if !self.close_when_done {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -540,7 +581,7 @@ impl VaultApp {
             return None;
         }
         let mut picker = None;
-        let action = egui::Panel::right("file-actions")
+        let mut action = egui::Panel::right("file-actions")
             .default_size(286.0)
             .resizable(false)
             .frame(egui::Frame::new().fill(theme::SURFACE).inner_margin(16))
@@ -670,6 +711,14 @@ impl VaultApp {
                 if !self.browser.trash && session.vault.is_writable() {
                     theme::caption(ui, locale.text(TextKey::DropImportHint));
                 }
+                theme::caption(
+                    ui,
+                    locale.text(if drag_export::SUPPORTED {
+                        TextKey::DragExportHint
+                    } else {
+                        TextKey::DragExportUnavailable
+                    }),
+                );
                 theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
                 if entries.is_empty() {
@@ -718,8 +767,19 @@ impl VaultApp {
                                         (),
                                     )
                                     .left_text(&entry.name)
+                                    .sense(egui::Sense::click_and_drag())
                                     .truncate(),
                                 );
+                                if response.drag_started()
+                                    && drag_export::SUPPORTED
+                                    && matches!(entry.kind, EntryKind::File { .. })
+                                    && !self.exports.busy()
+                                    && !self.editor.confirming()
+                                    && action.is_none()
+                                {
+                                    self.exports.begin_preparation();
+                                    action = Some(Action::PrepareDrag(entry.id));
+                                }
                                 if response.clicked() {
                                     self.browser.selected = Some(entry.id);
                                     self.editor.name = Zeroizing::new(entry.name.clone());
@@ -760,6 +820,7 @@ impl VaultApp {
 
 impl eframe::App for VaultApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.exports.observe_gesture(ctx);
         // Hidden windows still run logic; their egui input time/events may be stale.
         let close = ctx.input(|input| {
             input.viewport().close_requested()
@@ -769,9 +830,10 @@ impl eframe::App for VaultApp {
         ctx.request_repaint_after(Duration::from_millis(250));
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let locale = self.locale;
         let ctx = ui.ctx().clone();
+        self.exports.observe_gesture(&ctx);
         if ctx.input(|input| !input.events.is_empty()) {
             self.last_activity = Some(Instant::now());
         }
@@ -829,7 +891,10 @@ impl eframe::App for VaultApp {
                             .color(theme::MUTED),
                     )
                     .on_hover_text(locale.text(TextKey::ExperimentalWarning));
-                    if self.picker.is_some() {
+                    if self.exports.needs_cleanup() {
+                        ui.label(locale.text(TextKey::DragCleanupFailed))
+                            .on_hover_text(self.notice.render(locale));
+                    } else if self.picker.is_some() {
                         theme::caption(ui, locale.text(TextKey::WaitingPicker));
                     } else if !matches!(self.notice, Message::Empty) {
                         ui.label(self.notice.render(self.locale));
@@ -860,6 +925,7 @@ impl eframe::App for VaultApp {
                             );
                         }
                         ui.label(locale.text(TextKey::CancelWarning));
+                        ui.label(locale.text(TextKey::DragExportHold));
                     });
                 } else if self.session.is_some() {
                     let action = ui
@@ -883,6 +949,13 @@ impl eframe::App for VaultApp {
                     });
                 }
             });
+        if let Some(prepared) = self
+            .session
+            .as_mut()
+            .and_then(|session| session.drag_export.take())
+        {
+            self.notice = self.exports.start(prepared, frame, &ctx).into();
+        }
         if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
             let text = locale.text(if self.can_import_drop() {
                 TextKey::DropImportReady

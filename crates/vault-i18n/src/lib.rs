@@ -129,6 +129,14 @@ texts! {
     DropImportReady: "松开即可加密导入当前目录", "Release to encrypt and import into this folder";
     DropUnavailable: "此时无法拖入；请解锁可写保险库、退出回收站并等待当前操作结束。", "Cannot accept files now. Unlock a writable vault, leave trash, and wait for the current operation.";
     DropFilesOnly: "请拖入普通文件（最多 1000 个）；暂不支持文件夹、链接或无本地路径的项目。", "Drop regular files (up to 1000); folders, links and items without local paths are not supported.";
+    DragExportHint: "按住文件拖到系统目录即可解密复制；临时明文在锁定或退出时清理。", "Hold and drag a file to a system folder to decrypt a copy; temporary plaintext is removed on lock or exit.";
+    DragExportHold: "拖出文件时请按住鼠标，等待解密后再松开。", "When dragging a file out, keep holding the mouse until decryption finishes.";
+    DragExportActive: "请拖到目标目录松开；保险库中的文件会保留。", "Release over the destination folder; the vault file is preserved.";
+    DragExportDropped: "系统已接受拖出；请核对目标文件。临时明文将在锁定或退出时清理。", "System accepted the drop; check the destination. Temporary plaintext is removed on lock or exit.";
+    DragExportCancelled: "拖出已取消。", "Drag export canceled.";
+    DragCleanupFailed: "暂存明文清理失败（可能正被占用），正在重试；释放占用后才能安全退出。", "Temporary plaintext cleanup failed (possibly in use); retrying. Release open handles before safe exit.";
+    DragCleanupDone: "拖出暂存明文已清理。", "Temporary drag plaintext cleaned up.";
+    DragExportUnavailable: "此平台暂不支持系统拖出；请使用右侧导出。", "System drag-out is not supported on this platform; use Export on the right.";
     SearchAdjustHint: "可以切换目录，或调整搜索内容。", "Choose another folder or change your search.";
     Directory: "目录", "Folder";
     File: "文件", "File";
