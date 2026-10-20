@@ -306,7 +306,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(json.loads(self.call("list")[0])["name"], "已提交")
 
     @unittest.skipUnless(sys.platform == "linux", "requires Linux pipe capacity queries")
-    def test_batch_cancel_with_unread_stdout_releases_vault_lock(self):
+    def test_cancel_with_unread_stdout_releases_vault_lock(self):
         self.call("create", confirm=True)
         plan = self.root / "commands.jsonl"
         commands = [["mkdir", f"{i:02d}" + "x" * 220] for i in range(32)]
@@ -326,24 +326,25 @@ class CliTests(unittest.TestCase):
                     break
                 if process.poll() is not None:
                     error = process.stderr.read() if process.stderr is not None else b"merged output"
-                    raise AssertionError(f"batch exited before output blocked: {process.returncode}, "
+                    raise AssertionError(f"CLI exited before output blocked: {process.returncode}, "
                                          f"unread={unread}, capacity={capacity}, {error!r}")
                 if time.monotonic() > end:
-                    raise AssertionError(f"batch did not fill its unread output pipe: {unread}/{capacity}")
+                    raise AssertionError(f"CLI did not fill its unread output pipe: {unread}/{capacity}")
                 time.sleep(0.002)
             process.send_signal(signal.SIGINT)
             end = time.monotonic() + 5
             while process.poll() is None and time.monotonic() < end:
                 time.sleep(0.002)
-            self.assertEqual(process.poll(), 130, "batch must exit before stdout is drained")
-            self.call("mkdir", f"取消后锁已释放{merged}")
+            self.assertEqual(process.poll(), 130, "CLI must exit before stdout is drained")
+            self.call("mkdir", f"取消后锁已释放{args[0]}{'--json' in args}{merged}")
 
-        for merged in [False, True]:
-            with self.subTest(merged_stderr=merged):
-                _, stderr, _ = self.call("batch", plan, expected=130, during=cancel_blocked_writer,
-                                          stderr_sink=subprocess.STDOUT if merged else None)
-                if not merged:
-                    self.assertIn("此前完成的操作不会回滚", stderr)
+        for args in [("batch", plan), ("list",), ("list", "--json"), ("search", "x")]:
+            for merged in [False, True]:
+                with self.subTest(command=args[0], json="--json" in args, merged_stderr=merged):
+                    _, stderr, _ = self.call(*args, expected=130, during=cancel_blocked_writer,
+                                              stderr_sink=subprocess.STDOUT if merged else None)
+                    if args[0] == "batch" and not merged:
+                        self.assertIn("此前完成的操作不会回滚", stderr)
 
     def test_real_signals_process_lock_and_restart_after_abrupt_exit(self):
         self.call("create", confirm=True)

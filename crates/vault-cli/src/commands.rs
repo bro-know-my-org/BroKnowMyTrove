@@ -337,7 +337,7 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
                 diagnostic(locale.text(TextKey::RecoveryDisplayFailed));
             })?;
         }
-        return Response::Created.print(args.get_flag("json"), true, locale);
+        return Response::Created.print(args.get_flag("json"), true, locale, operation);
     }
     if name == "inspect" {
         let report = if args.get_flag("recovery-key") {
@@ -347,7 +347,7 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
             let key = password::read_password_in(false, locale)?;
             Vault::inspect(path, Credential::Password(&key))?
         };
-        return Response::Inspection(report).print(args.get_flag("json"), false, locale);
+        return Response::Inspection(report).print(args.get_flag("json"), false, locale, operation);
     }
     if matches!(name, "backup" | "restore-vault") {
         let vault = open(args, path, OpenMode::ReadOnly, locale, operation)?;
@@ -357,7 +357,7 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
         };
         let report =
             vault.backup_to(get::<PathBuf>(args, "destination"), verification, operation)?;
-        return Response::Backup(report).print(args.get_flag("json"), true, locale);
+        return Response::Backup(report).print(args.get_flag("json"), true, locale, operation);
     }
     let mode = if readonly(name) {
         args.get_one::<Id>("commit")
@@ -386,12 +386,13 @@ pub fn run(matches: &ArgMatches, operation: &Operation, locale: Locale) -> Resul
             }
             _ => vault.remove_recovery_key(operation)?,
         }
-        return Response::Empty.print(args.get_flag("json"), true, locale);
+        return Response::Empty.print(args.get_flag("json"), true, locale, operation);
     }
     execute(name, args, &mut vault, operation)?.print(
         args.get_flag("json"),
         !readonly(name) || name == "export",
         locale,
+        operation,
     )
 }
 

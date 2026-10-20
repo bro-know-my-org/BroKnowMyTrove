@@ -7,7 +7,7 @@ use std::{
 };
 use vault_core::{
     BackupReport, BackupVerification, CleanupReport, ContentReport, Entry, EntryKind, Error, Id,
-    Inspection, Issue, Result, StorageUsage,
+    Inspection, Issue, Result, StorageUsage, operation::Operation,
 };
 use vault_i18n::{Locale, TextKey};
 
@@ -41,6 +41,50 @@ pub fn diagnostic(message: &str) {
 
 pub fn output(value: &impl std::fmt::Display) -> Result<()> {
     writeln!(io::stdout().lock(), "{value}").map_err(Error::from)
+}
+
+struct Output {
+    lines: mpsc::SyncSender<String>,
+    results: mpsc::Receiver<Result<()>>,
+}
+
+impl Output {
+    fn new() -> io::Result<Self> {
+        let (lines, input) = mpsc::sync_channel::<String>(1);
+        let (finished, results) = mpsc::sync_channel(1);
+        // One bounded worker per response; it owns no session or credentials.
+        // Cancellation can drop the session without joining a blocked writer.
+        thread::Builder::new().spawn(move || {
+            for line in input {
+                if finished.send(output(&line)).is_err() {
+                    break;
+                }
+            }
+        })?;
+        Ok(Self { lines, results })
+    }
+
+    fn write(&self, value: &dyn std::fmt::Display, operation: &Operation) -> Result<()> {
+        operation.check_cancelled()?;
+        // Each line is acknowledged before the next is sent, bounding memory
+        // and keeping this send independent of the stdout consumer's progress.
+        self.lines
+            .send(value.to_string())
+            .map_err(|_| Error::Io(io::ErrorKind::Other))?;
+        loop {
+            operation.check_cancelled()?;
+            match self.results.recv_timeout(Duration::from_millis(50)) {
+                Ok(result) => {
+                    operation.check_cancelled()?;
+                    return result;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(Error::Io(io::ErrorKind::Other));
+                }
+            }
+        }
+    }
 }
 
 impl Response<'_> {
@@ -140,12 +184,25 @@ impl Response<'_> {
         }
     }
 
-    pub fn print(mut self, json: bool, may_change: bool, locale: Locale) -> Result<()> {
+    pub fn print(
+        mut self,
+        json: bool,
+        may_change: bool,
+        locale: Locale,
+        operation: &Operation,
+    ) -> Result<()> {
+        let printer = Output::new();
+        let output = |value: &dyn std::fmt::Display| {
+            printer
+                .as_ref()
+                .map_err(|error| Error::Io(error.kind()))?
+                .write(value, operation)
+        };
         let (printed, result) = if json {
             let (value, result) = self.into_json(locale);
             (output(&value), result)
         } else {
-            (self.print_text(locale), self.finish(locale))
+            (self.print_text(locale, output), self.finish(locale))
         };
         if printed.is_err() && may_change {
             diagnostic(locale.text(TextKey::OutputFailed));
@@ -155,7 +212,11 @@ impl Response<'_> {
         printed
     }
 
-    fn print_text(&mut self, locale: Locale) -> Result<()> {
+    fn print_text(
+        &mut self,
+        locale: Locale,
+        mut output: impl FnMut(&dyn std::fmt::Display) -> Result<()>,
+    ) -> Result<()> {
         match self {
             Self::Empty => Ok(()),
             Self::Created => output(&locale.text(TextKey::Created)),
