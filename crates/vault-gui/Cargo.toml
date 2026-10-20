@@ -16,8 +16,17 @@ tempfile.workspace = true
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 drag = "=2.1.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+raw-window-handle = "=0.6.2"
+x11rb = "=0.13.2"
+percent-encoding = "=2.3.2"
+rustix = { workspace = true, features = ["net"] }
+
 [dev-dependencies]
 serde_json.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { version = "=0.13.2", features = ["xtest"] }
 
 [lints]
 workspace = true

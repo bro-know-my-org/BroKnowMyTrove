@@ -3480,11 +3480,15 @@ version = "0.0.0"
 dependencies = [
  "drag",
  "eframe",
+ "percent-encoding",
+ "raw-window-handle",
  "rfd",
+ "rustix 1.1.5",
  "serde_json",
  "tempfile",
  "vault-core",
  "vault-i18n",
+ "x11rb",
  "zeroize",
 ]
 

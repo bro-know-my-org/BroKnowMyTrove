@@ -9,6 +9,9 @@ use std::{
 use vault_core::{Error, Id, Result, Vault, operation::Operation};
 use vault_i18n::TextKey;
 
+#[cfg(all(test, target_os = "linux"))]
+mod x11;
+
 pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 
 pub struct Prepared {
