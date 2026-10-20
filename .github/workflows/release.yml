@@ -143,9 +143,43 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
+      - name: Package all-platform portable bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_dir="$PWD/dist"
+          bundle_dir=$(mktemp -d)
+          while read -r target arch system binary; do
+            destination="$bundle_dir/$arch/$system"
+            mkdir -p "$destination"
+            if [[ "$system" == 'windows' ]]; then
+              unzip -p "$archive_dir/bkmt-$RELEASE_TAG-$target.zip" "$binary" > "$destination/$binary"
+            else
+              tar -xzf "$archive_dir/bkmt-$RELEASE_TAG-$target.tar.gz" -C "$destination" "$binary"
+            fi
+            test -s "$destination/$binary"
+            chmod 755 "$destination/$binary"
+          done <<'TARGETS'
+          x86_64-unknown-linux-gnu x64 linux bkmt
+          aarch64-unknown-linux-gnu arm64 linux bkmt
+          x86_64-pc-windows-msvc x64 windows bkmt.exe
+          aarch64-pc-windows-msvc arm64 windows bkmt.exe
+          x86_64-apple-darwin x64 macos bkmt
+          aarch64-apple-darwin arm64 macos bkmt
+          TARGETS
+          cd "$bundle_dir"
+          zip -q -9 -r "$archive_dir/bkmt-$RELEASE_TAG-all-platforms.zip" x64 arm64
       - name: Generate SHA-256 checksums
         working-directory: dist
         run: sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+      - name: Upload all-platform portable bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bkmt-all-platforms
+          path: dist/bkmt-*-all-platforms.zip
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       - name: Create release and upload assets
         shell: bash
         run: |
