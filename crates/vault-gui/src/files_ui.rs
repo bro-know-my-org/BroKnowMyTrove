@@ -17,6 +17,10 @@ pub struct Editor {
 }
 
 impl Editor {
+    pub fn confirming(&self) -> bool {
+        self.confirmation.is_some()
+    }
+
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,

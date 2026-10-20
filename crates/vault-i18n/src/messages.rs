@@ -38,6 +38,7 @@ pub enum Message {
     Content(ContentSummary),
     Space(StorageUsage),
     Backup(BackupReport),
+    Imported(usize, usize, Option<Error>),
 }
 
 // Both format strings are checked by Rust, including argument types and count.
@@ -88,6 +89,27 @@ impl Message {
             Self::Content(report) => locale.content_summary(report),
             Self::Space(report) => locale.storage(report),
             Self::Backup(report) => locale.backup(report),
+            Self::Imported(completed, total, failure) => {
+                let summary = bilingual!(
+                    locale,
+                    "已加密导入 {}/{} 个文件；保留源文件。",
+                    "Encrypted and imported {}/{} files; sources preserved.",
+                    completed,
+                    total
+                );
+                match failure {
+                    Some(error) => format!(
+                        "{summary} {}",
+                        bilingual!(
+                            locale,
+                            "{}；已完成的提交不会回滚，结果不确定时请锁定并重新检查。",
+                            "{}; completed commits are not rolled back. Lock and inspect again if the outcome is uncertain.",
+                            locale.error(error)
+                        )
+                    ),
+                    None => summary,
+                }
+            }
         }
     }
 }

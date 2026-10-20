@@ -208,6 +208,38 @@ struct VaultApp {
 }
 
 impl VaultApp {
+    fn can_import_drop(&self) -> bool {
+        self.task.is_none()
+            && self.picker.is_none()
+            && !self.close_when_done
+            && !self.browser.trash
+            && !self.editor.confirming()
+            && self
+                .session
+                .as_ref()
+                .is_some_and(|session| session.recovery.is_none() && session.vault.is_writable())
+    }
+
+    fn import_drop(&mut self, ctx: &egui::Context) {
+        let files = ctx.input_mut(|input| std::mem::take(&mut input.raw.dropped_files));
+        if files.is_empty() {
+            return;
+        }
+        if !self.can_import_drop() {
+            self.notice = TextKey::DropUnavailable.into();
+            return;
+        }
+        if files.len() > 1000 || files.iter().any(|file| !file.path().is_absolute()) {
+            self.notice = TextKey::DropFilesOnly.into();
+            return;
+        }
+        let sources = files
+            .into_iter()
+            .map(|file| file.path().to_owned())
+            .collect();
+        self.start_action(Action::ImportDrop(self.browser.parent, sources), ctx);
+    }
+
     fn lock(&mut self, ctx: &egui::Context) {
         if let Some(task) = &self.task {
             task.operation.cancel();
@@ -635,6 +667,9 @@ impl VaultApp {
                         .margin(egui::Margin::symmetric(8, 5)),
                 );
                 let entries = self.browser.entries(&session.vault);
+                if !self.browser.trash && session.vault.is_writable() {
+                    theme::caption(ui, locale.text(TextKey::DropImportHint));
+                }
                 theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
                 if entries.is_empty() {
@@ -848,6 +883,27 @@ impl eframe::App for VaultApp {
                     });
                 }
             });
+        if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
+            let text = locale.text(if self.can_import_drop() {
+                TextKey::DropImportReady
+            } else {
+                TextKey::DropUnavailable
+            });
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Tooltip,
+                egui::Id::new("file-drop-overlay"),
+            ));
+            let rect = ctx.content_rect();
+            painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(210));
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                text,
+                egui::FontId::proportional(18.0),
+                egui::Color32::WHITE,
+            );
+        }
+        self.import_drop(&ctx);
     }
 }
 

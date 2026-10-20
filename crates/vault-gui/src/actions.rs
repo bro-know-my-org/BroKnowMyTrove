@@ -7,6 +7,7 @@ use zeroize::Zeroizing;
 pub enum Action {
     Mkdir(Option<Id>, Zeroizing<String>),
     Import(Option<Id>, Zeroizing<String>, PathBuf),
+    ImportDrop(Option<Id>, Vec<PathBuf>),
     Export(Id, PathBuf),
     Replace(Id, PathBuf),
     Rename(Id, Zeroizing<String>),
@@ -46,6 +47,29 @@ impl Action {
             }
             Self::Import(parent, name, source) => {
                 vault.import_file(parent, &name, &source, operation)?;
+            }
+            Self::ImportDrop(parent, sources) => {
+                let total = sources.len();
+                // Validate the whole drop before committing any imports. Never follow
+                // directory/symlink drops or silently discard non-native paths.
+                if total == 0 || total > 1000 {
+                    return Err(vault_core::Error::InvalidInput);
+                }
+                for source in &sources {
+                    operation.check_cancelled()?;
+                    if !source.symlink_metadata()?.is_file()
+                        || source.file_name().and_then(|name| name.to_str()).is_none()
+                    {
+                        return Ok(TextKey::DropFilesOnly.into());
+                    }
+                }
+                for (completed, source) in sources.iter().enumerate() {
+                    let name = source.file_name().and_then(|name| name.to_str()).unwrap();
+                    if let Err(error) = vault.import_file(parent, name, source, operation) {
+                        return Ok(Message::Imported(completed, total, Some(error)));
+                    }
+                }
+                return Ok(Message::Imported(total, total, None));
             }
             Self::Export(id, destination) => vault.export_file(id, &destination, operation)?,
             Self::Replace(id, source) => vault.replace_file(id, &source, operation)?,

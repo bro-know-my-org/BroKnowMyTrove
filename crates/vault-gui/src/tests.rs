@@ -324,6 +324,123 @@ fn entry_id(app: &VaultApp, name: &str) -> Id {
         .id
 }
 
+fn drop_files(app: &mut VaultApp, ctx: &egui::Context, paths: Vec<Option<std::path::PathBuf>>) {
+    #[derive(Debug)]
+    struct NativeDrop(std::path::PathBuf);
+    impl egui::DroppedFile for NativeDrop {
+        fn path(&self) -> &Path {
+            &self.0
+        }
+        fn bytes(&self) -> std::result::Result<Vec<u8>, String> {
+            panic!("file contents must only be read by the vault worker")
+        }
+    }
+    ctx.input_mut(|input| {
+        input.raw.dropped_files = paths
+            .into_iter()
+            .map(|path| {
+                std::sync::Arc::new(NativeDrop(path.unwrap_or_default())) as egui::DroppedFileHandle
+            })
+            .collect();
+    });
+    app.import_drop(ctx);
+}
+
+#[test]
+fn dropping_files_encrypts_into_current_folder_and_reports_partial_conflicts() {
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = VaultApp::default();
+    create(&mut app, &temp.path().join("vault"), &ctx);
+    wait(&mut app, &ctx);
+    app.session.as_mut().unwrap().recovery = None;
+    act(
+        &mut app,
+        &ctx,
+        Action::Mkdir(None, Zeroizing::new("目标".into())),
+    );
+    let parent = entry_id(&app, "目标");
+    app.browser.parent = Some(parent);
+    let first = temp.path().join("中文.txt");
+    let second = temp.path().join("second.txt");
+    std::fs::write(&first, b"first plaintext").unwrap();
+    std::fs::write(&second, b"second plaintext").unwrap();
+    drop_files(
+        &mut app,
+        &ctx,
+        vec![Some(first.clone()), Some(second.clone())],
+    );
+    assert!(ctx.input(|input| input.raw.dropped_files.is_empty()));
+    wait(&mut app, &ctx);
+    assert!(app.notice.render(Locale::EnUs).contains("2/2"));
+    for (name, source) in [("中文.txt", &first), ("second.txt", &second)] {
+        let vault = &app.session.as_ref().unwrap().vault;
+        let id = entry_id(&app, name);
+        assert_eq!(vault.entry(id).unwrap().parent, Some(parent));
+        let output = temp.path().join(format!("out-{name}"));
+        vault
+            .export_file(id, &output, &Operation::default())
+            .unwrap();
+        assert_eq!(
+            std::fs::read(output).unwrap(),
+            std::fs::read(source).unwrap()
+        );
+    }
+    let third = temp.path().join("third.txt");
+    std::fs::write(&third, b"third").unwrap();
+    drop_files(&mut app, &ctx, vec![Some(third), Some(first)]);
+    wait(&mut app, &ctx);
+    assert!(app.notice.render(Locale::ZhCn).contains("1/2"));
+    assert!(app.notice.render(Locale::EnUs).contains("conflict"));
+    assert_eq!(app.session.as_ref().unwrap().vault.entries().count(), 4);
+}
+
+#[test]
+fn drops_are_not_queued_while_locked_read_only_in_trash_or_showing_recovery() {
+    let ctx = egui::Context::default();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("vault");
+    let source = temp.path().join("file.txt");
+    std::fs::write(&source, b"source").unwrap();
+    let mut app = VaultApp::default();
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    assert!(app.task.is_none());
+    create(&mut app, &path, &ctx);
+    wait(&mut app, &ctx);
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    assert!(app.task.is_none()); // Recovery has not yet been acknowledged.
+    app.session.as_mut().unwrap().recovery = None;
+    app.browser.trash = true;
+    drop_files(&mut app, &ctx, vec![Some(source.clone())]);
+    assert!(app.task.is_none());
+    app.browser.trash = false;
+    drop_files(&mut app, &ctx, vec![Some(source.clone()), None]);
+    assert!(app.task.is_none()); // Reject the entire mixed native/virtual drop.
+    drop_files(
+        &mut app,
+        &ctx,
+        vec![Some(source.clone()), Some(temp.path().into())],
+    );
+    wait(&mut app, &ctx);
+    assert_eq!(app.session.as_ref().unwrap().vault.entries().count(), 0);
+    app.lock(&ctx);
+    app.task = Some(
+        Task::start(
+            path,
+            Request::Open(
+                Password::new("中文café".into()).unwrap(),
+                OpenMode::ReadOnly,
+            ),
+            ctx.clone(),
+        )
+        .unwrap(),
+    );
+    wait(&mut app, &ctx);
+    drop_files(&mut app, &ctx, vec![Some(source)]);
+    assert!(app.task.is_none());
+    assert_eq!(app.session.as_ref().unwrap().vault.entries().count(), 0);
+}
+
 #[test]
 fn gui_file_jobs_roundtrip_preserve_source_and_session_on_failure() {
     let ctx = egui::Context::default();

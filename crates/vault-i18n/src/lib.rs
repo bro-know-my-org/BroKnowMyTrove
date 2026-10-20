@@ -125,6 +125,10 @@ texts! {
     EmptyTrash: "回收站是空的", "Trash is empty";
     NoFiles: "这里还没有文件", "No files here yet";
     AddFilesHint: "在右侧展开“导入与新建”以添加文件。", "Expand ‘Import and create’ on the right to add files.";
+    DropImportHint: "拖入文件即可加密导入当前目录；保留源文件。", "Drop files to encrypt them into this folder; sources are preserved.";
+    DropImportReady: "松开即可加密导入当前目录", "Release to encrypt and import into this folder";
+    DropUnavailable: "此时无法拖入；请解锁可写保险库、退出回收站并等待当前操作结束。", "Cannot accept files now. Unlock a writable vault, leave trash, and wait for the current operation.";
+    DropFilesOnly: "请拖入普通文件（最多 1000 个）；暂不支持文件夹、链接或无本地路径的项目。", "Drop regular files (up to 1000); folders, links and items without local paths are not supported.";
     SearchAdjustHint: "可以切换目录，或调整搜索内容。", "Choose another folder or change your search.";
     Directory: "目录", "Folder";
     File: "文件", "File";
