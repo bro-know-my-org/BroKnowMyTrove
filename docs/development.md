@@ -23,11 +23,11 @@ Linux 默认 GUI 使用 eframe 0.36.2、glow/OpenGL，编译 X11/Wayland 后端�
 
 ```sh
 sudo apt-get install build-essential pkg-config libx11-dev libxcursor-dev \
-  libxi-dev libxrandr-dev libxkbcommon-dev libwayland-dev \
+  libxi-dev libxrandr-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev \
   libegl1-mesa-dev libgl1-mesa-dev
 ```
 
-GUI 运行需要图形会话和相应库/驱动；CLI 分支不初始化图形后端。rfd 0.17.2 原生选择器在 Linux 依赖会话 D-Bus、xdg-desktop-portal 和桌面文件选择后端，隔离会话可能失败，保留手填路径入口。
+GUI 运行需要图形会话和相应库/驱动；X11 后端会动态加载 `libxkbcommon-x11.so.0`，Ubuntu 需安装 `libxkbcommon-x11-0`（仅安装 `libxkbcommon-dev` 不足以提供该库）。CLI 分支不初始化图形后端。rfd 0.17.2 原生选择器在 Linux 依赖会话 D-Bus、xdg-desktop-portal 和桌面文件选择后端，隔离会话可能失败，保留手填路径入口。
 
 ## 固定密码依赖与许可
 
