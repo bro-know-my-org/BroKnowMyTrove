@@ -76,6 +76,8 @@ jobs:
       TARGET: ${{ matrix.target }}
       RELEASE_TAG: ${{ needs.version.outputs.tag }}
     steps:
+      - name: Preserve LF in tagged build inputs
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false

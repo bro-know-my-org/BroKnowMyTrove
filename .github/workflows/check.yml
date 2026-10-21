@@ -65,4 +65,17 @@ jobs:
           env -u DISPLAY -u WAYLAND_DISPLAY target/debug/bkmt --version
           python3 scripts/test-cli.py target/debug/bkmt
           python3 scripts/test-management.py target/debug/bkmt
-          bash scripts/smoke-gui.sh
+      - name: Smoke test GUI
+        run: |
+          if ! bash scripts/smoke-gui.sh; then
+            cat /tmp/bkm-gui.*/gui.err /tmp/bkm-gui.*/xvfb.err
+            exit 1
+          fi
+      - name: Upload GUI smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gui-smoke-${{ github.run_id }}
+          path: /tmp/bkm-gui.*/
+          if-no-files-found: ignore
+          retention-days: 7
