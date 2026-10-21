@@ -104,9 +104,11 @@ jobs:
           python .github/scripts/prepare-release.py
           cargo update --workspace
       - name: Test workspace
-        run: cargo test --workspace --locked --target "$TARGET"
+        run: |
+          cargo test --release --workspace --exclude vault-gui --locked --target "$TARGET"
+          cargo test --release -p vault-gui --locked --target "$TARGET" -- --test-threads=1
       - name: Test CLI without GUI
-        run: cargo test -p vault-cli --no-default-features --locked --target "$TARGET"
+        run: cargo test --release -p vault-cli --no-default-features --locked --target "$TARGET"
       - name: Build release binary
         run: cargo build --release --locked -p vault-cli --bin bkmt --target "$TARGET"
       - name: Smoke test release binary
