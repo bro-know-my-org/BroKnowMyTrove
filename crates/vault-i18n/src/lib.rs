@@ -158,7 +158,7 @@ texts! {
     Unlocked: "已解锁", "Unlocked";
     Locked: "已锁定", "Locked";
     Experimental: "实验版本", "Experimental";
-    ExperimentalWarning: "格式未稳定，未经独立安全审计，仅使用可丢弃测试数据。", "The format is unstable and has not been independently audited. Use disposable test data only.";
+    ExperimentalWarning: "BKMT-1 磁盘格式已冻结；产品未经独立安全审计，仅使用可丢弃测试数据。", "The BKMT-1 disk format is frozen; the product has not been independently audited. Use disposable test data only.";
     GuiStartupFailed: "无法启动图形界面，请检查图形会话和驱动；命令行用法见 bkmt --help。", "Cannot start the graphical interface. Check the graphical session and drivers; run bkmt --help for command-line usage.";
     LaunchHelp: "不带参数运行 bkmt 打开图形界面；带参数运行进入命令行模式。", "Run bkmt without arguments to open the graphical interface; supply arguments for command-line mode.";
     WaitingPicker: "等待系统选择器；锁定可丢弃选择结果。", "Waiting for the system picker; locking discards the selection.";

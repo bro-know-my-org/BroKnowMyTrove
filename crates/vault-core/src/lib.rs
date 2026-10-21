@@ -37,4 +37,4 @@ pub const PRODUCT_NAME: &str = "BroKnowMyTrove";
 
 /// Explicitly describes the capabilities of this engineering milestone.
 pub const DEVELOPMENT_STATUS: &str =
-    "Experimental development build. No stable format or independent security audit yet.";
+    "Experimental development build. BKMT-1 disk format frozen; no independent security audit yet.";
