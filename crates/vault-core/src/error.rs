@@ -40,7 +40,7 @@ impl fmt::Display for Error {
             Self::Io(_) => "filesystem operation failed",
             Self::Crypto => "cryptographic operation failed",
             Self::Authentication => "authentication failed (wrong credential or damaged data)",
-            Self::InvalidFormat => "invalid or unsupported experimental format",
+            Self::InvalidFormat => "invalid or unsupported vault format",
             Self::ResourceLimit => "format or resource limit exceeded",
             Self::InvalidInput => "invalid input",
             Self::Conflict => "name, destination, or commit conflict",

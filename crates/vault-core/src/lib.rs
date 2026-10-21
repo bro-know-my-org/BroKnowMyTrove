@@ -1,4 +1,4 @@
-//! Shared vault core. The experimental format is not a stable product format.
+//! Shared vault core for the frozen BKMT-1 disk format; not independently audited.
 
 mod backup;
 mod codec;

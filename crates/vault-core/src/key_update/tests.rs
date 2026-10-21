@@ -16,17 +16,19 @@ fn options() -> CreateOptions {
 }
 
 #[test]
-fn recovery_password_reset_does_not_republish_tampered_weak_kdf() {
+fn recovery_rejects_tampered_parameters_before_password_reset() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("vault");
     let old = password("原始密码");
-    let new = password("恢复后的新密码");
     let (mut vault, recovery) = Vault::create(
         &path,
         &old,
         CreateOptions {
             recovery_key: true,
-            ..CreateOptions::default()
+            kdf: KdfParams {
+                operations: 2,
+                memory_bytes: 16 * 1024 * 1024,
+            },
         },
     )
     .unwrap();
@@ -37,20 +39,20 @@ fn recovery_password_reset_does_not_republish_tampered_weak_kdf() {
     let file = path.join("keys.json");
     let mut header: KeyFile = codec::decode(&fs::read(&file).unwrap(), codec::KEY_LIMIT).unwrap();
     header.kdf = options().kdf;
-    fs::write(&file, codec::encode(&header, codec::KEY_LIMIT).unwrap()).unwrap();
-    assert!(Vault::open(&path, Credential::Password(&old), OpenMode::ReadOnly).is_err());
+    let tampered = codec::encode(&header, codec::KEY_LIMIT).unwrap();
+    fs::write(&file, &tampered).unwrap();
     let key = recovery.unwrap();
-    let mut vault = Vault::open(&path, Credential::Recovery(&key), OpenMode::ReadWrite).unwrap();
-    vault.change_password(&new, &Operation::default()).unwrap();
-    drop(vault);
-    let updated: KeyFile = codec::decode(&fs::read(&file).unwrap(), codec::KEY_LIMIT).unwrap();
-    assert!(updated.kdf.operations >= KdfParams::default().operations);
-    assert!(updated.kdf.memory_bytes >= KdfParams::default().memory_bytes);
-    assert_eq!(header.recovery, updated.recovery);
-    let vault = Vault::open(&path, Credential::Password(&new), OpenMode::ReadWrite).unwrap();
-    assert_eq!(vault.search("保留数据", false).count(), 1);
-    drop(vault);
-    assert!(Vault::open(&path, Credential::Recovery(&key), OpenMode::ReadOnly).is_ok());
+    for credential in [Credential::Password(&old), Credential::Recovery(&key)] {
+        assert!(matches!(
+            Vault::open(&path, credential, OpenMode::ReadWrite),
+            Err(Error::Authentication)
+        ));
+        assert_eq!(fs::read(&file).unwrap(), *tampered);
+    }
+    assert!(matches!(
+        Vault::inspect(&path, Credential::Recovery(&key)),
+        Err(Error::Authentication)
+    ));
 }
 
 #[test]

@@ -131,7 +131,7 @@ fn seeded_parser_mutations_remain_bounded_and_valid_values_roundtrip() {
     let corpus = [
         br#"{"entries":[]}"#.as_slice(),
         br#"{"sequence":0,"parent":null,"snapshot":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}"#,
-        br#"{"magic":"BKMT-EXPERIMENT-1","vault_id":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"kdf":{"operations":1,"memory_bytes":8388608},"salt":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"password":[],"recovery":null}"#,
+        br#"{"magic":"BKMT-1","vault_id":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"kdf":{"operations":1,"memory_bytes":8388608},"salt":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"password":[],"recovery":null,"authentication":[]}"#,
         include_bytes!("../tests/vectors/metadata.json"),
     ];
     let mut rng = Generator(0x6d36_7061_7273_6572);

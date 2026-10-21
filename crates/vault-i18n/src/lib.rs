@@ -220,7 +220,7 @@ texts! {
     ErrorExportPrivacy: "目标文件系统无法保护导出暂存明文，请改用支持私有权限的本地目录", "Destination cannot protect temporary plaintext; choose a private local filesystem";
     ErrorCrypto: "密码运算失败", "cryptographic operation failed";
     ErrorAuthentication: "认证失败（凭据错误或数据损坏）", "authentication failed (wrong credential or damaged data)";
-    ErrorFormat: "无效或不支持的实验格式", "invalid or unsupported experimental format";
+    ErrorFormat: "无效或不支持的保险库格式", "invalid or unsupported vault format";
     ErrorLimit: "超出格式或资源限制", "format or resource limit exceeded";
     ErrorInput: "输入无效", "invalid input";
     ErrorConflict: "名称、目标或提交冲突", "name, destination, or commit conflict";
