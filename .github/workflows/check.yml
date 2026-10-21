@@ -17,6 +17,44 @@ permissions:
   contents: read
 
 jobs:
+  windows:
+    if: inputs.release-tag == ''
+    name: Windows (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Preserve LF in build inputs
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned libsodium inputs
+        working-directory: vendor/libsodium
+        run: sha256sum --check SHA256SUMS
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          key: windows-${{ matrix.os }}
+          save-if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+      - name: Test workspace and CLI-only configuration
+        run: |
+          cargo test --release --workspace --exclude vault-gui --locked
+          cargo test --release -p vault-gui --locked -- --test-threads=1
+          cargo test --release -p vault-cli --no-default-features --locked
+      - name: Build and smoke test unified executable
+        run: |
+          cargo build --release --locked -p vault-cli --bin bkmt
+          target/release/bkmt.exe --version
+          target/release/bkmt.exe --help
+
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
