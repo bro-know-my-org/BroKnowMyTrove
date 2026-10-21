@@ -23,6 +23,7 @@ pub enum Request {
 
 pub struct Session {
     pub vault: Vault,
+    pub search: Arc<vault_core::SearchIndex>,
     pub recovery: Option<Zeroizing<String>>,
     pub drag_export: Option<crate::drag_export::Prepared>,
     pub import_drop: Option<crate::drop_import::Batch>,
@@ -75,6 +76,7 @@ impl Request {
         };
         Ok(Completion {
             session: Some(Session {
+                search: Arc::new(vault.search_index(operation)?),
                 vault,
                 recovery: recovery.map(|key| key.encode()).transpose()?,
                 drag_export: None,
@@ -136,7 +138,19 @@ impl Task {
         let worker_operation = operation.clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         let worker = thread::Builder::new().spawn(move || {
-            let _ = sender.send(work(&worker_operation));
+            let mut completion = work(&worker_operation);
+            if let Some(session) = &mut completion.session
+                && session.search.commit() != session.vault.current_commit()
+            {
+                match session.vault.search_index(&worker_operation) {
+                    Ok(index) => session.search = Arc::new(index),
+                    Err(error) => {
+                        completion.session = None;
+                        completion.result = Err(error);
+                    }
+                }
+            }
+            let _ = sender.send(completion);
             ctx.request_repaint();
         })?;
         Ok(Self {

@@ -1,7 +1,7 @@
 use eframe::egui;
 use std::time::{Duration, Instant};
 use vault_core::{
-    BackupVerification, CreateOptions, EntryKind, Error, Id, OpenMode, Result,
+    BackupVerification, CreateOptions, EntryKind, Error, OpenMode, Result,
     crypto::{Password, RecoveryKey},
 };
 use vault_i18n::{Locale, TextKey};
@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 mod actions;
 #[cfg(target_os = "linux")]
 mod backend;
+mod browser;
 mod credentials_ui;
 mod drag_export;
 mod drop_import;
@@ -18,6 +19,7 @@ mod picker;
 mod session;
 mod theme;
 use actions::Action;
+use browser::Browser;
 use picker::{PathInput, Picker, Target};
 use session::{Request, Session, Task};
 use vault_i18n::{ErrorContext, Message};
@@ -134,67 +136,6 @@ impl Form {
         } else {
             Ok(Request::Open(password, mode))
         }
-    }
-}
-
-#[derive(Default)]
-struct Browser {
-    query: Zeroizing<String>,
-    parent: Option<Id>,
-    trash: bool,
-    selected: Option<Id>,
-    cached: Option<Listing>,
-}
-
-struct Listing {
-    state: (Option<Id>, Option<Id>, bool),
-    query: Zeroizing<String>,
-    rows: Vec<usize>,
-}
-
-impl Browser {
-    fn entries<'a>(&mut self, vault: &'a vault_core::Vault) -> Vec<&'a vault_core::Entry> {
-        let entries: Vec<_> = vault.entries().collect();
-        let state = (vault.current_commit(), self.parent, self.trash);
-        if self
-            .cached
-            .as_ref()
-            .is_none_or(|cache| cache.state != state || cache.query.as_str() != self.query.as_str())
-        {
-            let rows = if self.query.is_empty() {
-                entries
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, entry)| {
-                        (entry.is_trashed() == self.trash
-                            && (self.trash || entry.parent == self.parent))
-                            .then_some(index)
-                    })
-                    .collect()
-            } else {
-                let indices: std::collections::HashMap<_, _> = entries
-                    .iter()
-                    .enumerate()
-                    .map(|(index, entry)| (entry.id, index))
-                    .collect();
-                vault
-                    .search(&self.query, self.trash)
-                    .map(|entry| indices[&entry.id])
-                    .collect()
-            };
-            self.cached = Some(Listing {
-                state,
-                query: Zeroizing::new(self.query.to_string()),
-                rows,
-            });
-        }
-        self.cached
-            .as_ref()
-            .unwrap()
-            .rows
-            .iter()
-            .map(|&index| entries[index])
-            .collect()
     }
 }
 
@@ -720,7 +661,13 @@ impl VaultApp {
                         .desired_width(f32::INFINITY)
                         .margin(egui::Margin::symmetric(8, 5)),
                 );
-                let entries = self.browser.entries(&session.vault);
+                let entries = match self.browser.entries(session, ui.ctx()) {
+                    Ok(entries) => entries,
+                    Err(error) => {
+                        self.notice = Message::Error(ErrorContext::Task, error);
+                        Vec::new()
+                    }
+                };
                 if matches!(drag_support, Err(TextKey::DragExportX11Required)) {
                     theme::caption(ui, locale.text(TextKey::WaylandDragUnavailable));
                 } else {
@@ -736,7 +683,9 @@ impl VaultApp {
                 }
                 theme::caption(ui, &locale.items(entries.len()));
                 ui.separator();
-                if entries.is_empty() {
+                if self.browser.pending() {
+                    ui.spinner();
+                } else if entries.is_empty() {
                     ui.add_space(32.0);
                     ui.vertical_centered(|ui| {
                         ui.label(

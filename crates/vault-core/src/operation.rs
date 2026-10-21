@@ -121,6 +121,7 @@ impl<W: std::io::Write> std::io::Write for OperationWriter<'_, W> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Point {
+    SearchIndexEntry,
     InventoryEntry,
     CommitRead,
     KeysDerived,

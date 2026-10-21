@@ -11,6 +11,7 @@ mod keyfile;
 mod ledger;
 mod model;
 pub mod operation;
+mod search;
 mod store;
 mod stream;
 mod tree;
@@ -30,6 +31,7 @@ pub use garbage::{CleanupReport, StorageUsage};
 pub use keyfile::{CreateOptions, Credential};
 pub use ledger::{CommitInfo, Inspection, Issue};
 pub use model::{Entry, EntryKind, Id};
+pub use search::SearchIndex;
 pub use vault::{OpenMode, Vault};
 
 /// Product name shared by both application entry points.

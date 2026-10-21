@@ -1,6 +1,6 @@
 use super::*;
 use std::{path::Path, thread, time::Instant};
-use vault_core::{Credential, OpenMode, Vault, crypto::KdfParams, operation::Operation};
+use vault_core::{Credential, Id, OpenMode, Vault, crypto::KdfParams, operation::Operation};
 
 pub(super) fn wait(app: &mut VaultApp, ctx: &egui::Context) {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -813,6 +813,7 @@ fn m6_browser_frame_baseline() {
     let count = vault.entries().count();
     let mut app = VaultApp {
         session: Some(Session {
+            search: std::sync::Arc::new(vault.search_index(&Operation::default()).unwrap()),
             drag_export: None,
             import_drop: None,
             vault,
@@ -846,6 +847,7 @@ fn m6_browser_frame_baseline() {
     ctx.set_fonts(fonts);
     for query in ["", "café"] {
         app.browser.query = Zeroizing::new(query.into());
+        listing(&mut app, &ctx); // Benchmark rendered results, not pending spinners.
         let mut times = Vec::new();
         for _ in 0..12 {
             let started = Instant::now();
@@ -891,29 +893,92 @@ fn browser_listing_tracks_query_navigation_commits_trash_and_lock() {
     let mut app = VaultApp::default();
     create(&mut app, &temp.path().join("vault"), &ctx);
     wait(&mut app, &ctx);
-    let vault = &mut app.session.as_mut().unwrap().vault;
-    let op = Operation::default();
-    let root = vault.mkdir(None, "root", &op).unwrap();
-    let child = vault.mkdir(Some(root), "café", &op).unwrap();
-    assert_eq!(app.browser.entries(vault).len(), 1);
-    assert_eq!(app.browser.entries(vault)[0].id, root);
+    act(
+        &mut app,
+        &ctx,
+        Action::Mkdir(None, Zeroizing::new("root".into())),
+    );
+    let root = app
+        .session
+        .as_ref()
+        .unwrap()
+        .vault
+        .search("root", false)
+        .next()
+        .unwrap()
+        .id;
+    act(
+        &mut app,
+        &ctx,
+        Action::Mkdir(Some(root), Zeroizing::new("café".into())),
+    );
+    let child = app
+        .session
+        .as_ref()
+        .unwrap()
+        .vault
+        .search("café", false)
+        .next()
+        .unwrap()
+        .id;
+    assert!(
+        app.browser
+            .entries(app.session.as_ref().unwrap(), &ctx)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        app.browser.pending(),
+        "uncached scans must run off the UI thread"
+    );
+    assert_eq!(listing(&mut app, &ctx), vec![root]);
     app.browser.parent = Some(root);
-    assert_eq!(app.browser.entries(vault).len(), 1);
-    assert_eq!(app.browser.entries(vault)[0].id, child);
+    assert_eq!(listing(&mut app, &ctx), vec![child]);
     app.browser.parent = None;
+    app.browser.query = Zeroizing::new("no matches".into());
+    assert!(
+        app.browser
+            .entries(app.session.as_ref().unwrap(), &ctx)
+            .unwrap()
+            .is_empty()
+    );
     app.browser.query = Zeroizing::new("CAFE\u{301}".into());
-    assert_eq!(app.browser.entries(vault)[0].id, child);
-    vault.rename(child, "renamed", &op).unwrap();
-    assert!(app.browser.entries(vault).is_empty());
+    assert_eq!(listing(&mut app, &ctx), vec![child]);
+    act(
+        &mut app,
+        &ctx,
+        Action::Rename(child, Zeroizing::new("renamed".into())),
+    );
+    assert!(listing(&mut app, &ctx).is_empty());
     app.browser.query.clear();
-    vault.trash_entry(root, &op).unwrap();
-    assert!(app.browser.entries(vault).is_empty());
+    act(&mut app, &ctx, Action::Trash(root));
+    assert!(listing(&mut app, &ctx).is_empty());
     app.browser.trash = true;
-    assert_eq!(app.browser.entries(vault).len(), 2);
-    vault.restore_entry(root, &op).unwrap();
-    assert!(app.browser.entries(vault).is_empty());
+    assert_eq!(listing(&mut app, &ctx).len(), 2);
+    act(&mut app, &ctx, Action::Restore(root));
+    assert!(listing(&mut app, &ctx).is_empty());
     app.browser.query = Zeroizing::new("clear cached query on lock".into());
-    assert!(app.browser.entries(vault).is_empty());
+    assert!(
+        app.browser
+            .entries(app.session.as_ref().unwrap(), &ctx)
+            .unwrap()
+            .is_empty()
+    );
     app.lock(&ctx);
-    assert!(app.browser.cached.is_none() && app.browser.query.is_empty());
+    assert!(app.browser.cached.is_none() && app.browser.query.is_empty() && !app.browser.pending());
+}
+
+fn listing(app: &mut VaultApp, ctx: &egui::Context) -> Vec<Id> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let rows = app
+            .browser
+            .entries(app.session.as_ref().unwrap(), ctx)
+            .unwrap();
+        if !app.browser.pending() {
+            return rows.into_iter().map(|entry| entry.id).collect();
+        }
+        assert!(Instant::now() < deadline, "search worker did not finish");
+        thread::sleep(Duration::from_millis(1));
+    }
 }
