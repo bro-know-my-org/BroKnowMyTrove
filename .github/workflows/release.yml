@@ -38,7 +38,13 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           python3 .github/scripts/prepare-release.py --validate-only
-          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG"
+          if local_commit=$(git rev-parse -q --verify "refs/tags/$RELEASE_TAG^{commit}"); then
+            if [[ "$local_commit" != "$(git rev-parse 'FETCH_HEAD^{commit}')" ]]; then
+              echo '::error::Local and remote release tags point to different commits.'
+              exit 1
+            fi
+          fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   checks:
