@@ -57,26 +57,40 @@ fn run_command(mut command: Command) -> Output {
 
 #[test]
 fn help_and_version_work_without_a_display() {
+    let executable = std::path::Path::new(env!("CARGO_BIN_EXE_bkmt"))
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
     for (args, expected) in [
-        (vec!["--help"], "用法: bkmt"),
-        (vec!["--lang", "en-US", "--help"], "Usage: bkmt"),
+        (vec!["--help"], format!("用法: {executable}")),
+        (
+            vec!["--lang", "en-US", "--help"],
+            format!("Usage: {executable}"),
+        ),
         (
             vec!["create", "--lang=en-US", "--help"],
-            "Usage: bkmt create",
+            format!("Usage: {executable} create"),
         ),
         (
             vec!["help", "create", "--lang", "zh-CN"],
-            "用法: bkmt create",
+            "用法: bkmt create".to_owned(),
         ),
-        (vec!["help", "list", "--lang", "en-US"], "Usage: bkmt list"),
+        (
+            vec!["help", "list", "--lang", "en-US"],
+            "Usage: bkmt list".to_owned(),
+        ),
         (
             vec!["--version"],
-            concat!("bkmt ", env!("CARGO_PKG_VERSION")),
+            concat!("bkmt ", env!("CARGO_PKG_VERSION")).to_owned(),
         ),
     ] {
         let output = run(&args);
         assert!(output.status.success());
-        assert!(String::from_utf8_lossy(&output.stdout).contains(expected));
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(&expected),
+            "args={args:?}, expected={expected:?}, output={output:?}"
+        );
         assert!(output.stderr.is_empty());
         #[cfg(feature = "gui")]
         if args == ["--help"] {
