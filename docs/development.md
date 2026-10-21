@@ -76,6 +76,8 @@ cargo build --locked
 
 各平台压缩包与合集包含字体和 libsodium 的 `LICENSES/`，解压分发时一并保留。
 
+发布构建与功能测试使用标签源码；GUI 冒烟测试脚本使用工作流提交的版本，以便修复 CI 显示服务的就绪等待等测试环境问题，无需移动已有标签。
+
 ## 网站
 
 [website](../website) 使用 Vite + TypeScript + 原生 CSS；Node 24（.nvmrc）、pnpm 11.25.0。进入 website 执行：

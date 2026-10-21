@@ -66,8 +66,12 @@ jobs:
           python3 scripts/test-cli.py target/debug/bkmt
           python3 scripts/test-management.py target/debug/bkmt
       - name: Smoke test GUI
+        env:
+          VALIDATION_COMMIT: ${{ github.workflow_sha }}
         run: |
-          if ! bash scripts/smoke-gui.sh; then
+          git fetch --no-tags --depth=1 origin "$VALIDATION_COMMIT"
+          git show "$VALIDATION_COMMIT:scripts/smoke-gui.sh" > "$RUNNER_TEMP/bkmt-smoke-gui.sh"
+          if ! bash "$RUNNER_TEMP/bkmt-smoke-gui.sh"; then
             cat /tmp/bkm-gui.*/gui.err /tmp/bkm-gui.*/xvfb.err
             exit 1
           fi

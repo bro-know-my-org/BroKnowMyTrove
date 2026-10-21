@@ -26,16 +26,22 @@ printf 'GUI logs=%s\n' "$task_logs"
 Xvfb -displayfd 3 -screen 0 800x600x24 -nolisten tcp \
     3>"$task_logs/display" >"$task_logs/xvfb.out" 2>"$task_logs/xvfb.err" &
 server_pid=$!
-for attempt in {1..50}; do
+for attempt in {1..300}; do
     test -s "$task_logs/display" && break
+    kill -0 "$server_pid" 2>/dev/null || break
     sleep 0.1
 done
+if ! test -s "$task_logs/display"; then
+    printf 'Xvfb did not become ready within 30 seconds\n' >&2
+    cat "$task_logs/xvfb.err" >&2
+    exit 1
+fi
 export DISPLAY=":"$(cat "$task_logs/display")
 export LIBGL_ALWAYS_SOFTWARE=1
 unset WAYLAND_DISPLAY
 "${1:-target/debug/bkmt}" >"$task_logs/gui.out" 2>"$task_logs/gui.err" &
 app_pid=$!
-window=$(timeout 10s xdotool search --sync --onlyvisible --pid "$app_pid" \
+window=$(timeout 30s xdotool search --sync --onlyvisible --pid "$app_pid" \
     --name BroKnowMyTrove | head -n 1)
 test -n "$window"
 xdotool getwindowgeometry "$window"
