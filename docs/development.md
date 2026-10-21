@@ -80,7 +80,7 @@ pnpm build
 pnpm preview
 ```
 
-开发地址以终端为准，通常为 localhost:5173；build 先做 TypeScript 检查，再生成 dist，资源为相对路径，可用于 GitHub Pages 项目子目录；部署流程尚未确定。
+开发地址以终端为准，通常为 localhost:5173；build 先做 TypeScript 检查，再生成 dist，资源为相对路径，可用于 GitHub Pages 项目子目录。[Pages 工作流](../.github/workflows/pages.yml) 在 main 的网站文件变更时自动构建并部署，也支持手动运行；PR 只构建验证。仓库 Settings → Pages 的 Source 使用 GitHub Actions，站点为 https://bro-know-my-org.github.io/BroKnowMyTrove/ 。
 
 index.html 为结构，src/main.ts/style.css 为入口，demo.ts/demo.css 为 GUI 演示，desktop.ts/desktop.css 为虚拟桌面和拖放。演示使用虚拟文件，不执行真实加解密或文件 I/O；支持拖入/拖出、触摸指针、键盘 Enter/空格、Esc 取消、五步跳转、进度、暂停/重播及 0.5×/1×/2×，1× 约 30 秒。
 

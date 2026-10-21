@@ -104,17 +104,23 @@ jobs:
           if [[ "$RUNNER_OS" == 'Windows' ]]; then binary="$binary.exe"; fi
           "$binary" --version
           "$binary" --help
+      - name: Include font and libsodium licenses
+        run: |
+          license_dir="target/$TARGET/release/LICENSES"
+          mkdir -p "$license_dir"
+          cp assets/fonts/LICENSE-*.txt "$license_dir/"
+          tar -xOf vendor/libsodium/LATEST.tar.gz libsodium-stable/LICENSE > "$license_dir/LICENSE-libsodium.txt"
       - name: Package Unix binary
         if: github.ref_type == 'tag' && runner.os != 'Windows'
         run: |
           mkdir -p dist
-          tar -czf "dist/bkmt-$RELEASE_TAG-$TARGET.tar.gz" -C "target/$TARGET/release" bkmt
+          tar -czf "dist/bkmt-$RELEASE_TAG-$TARGET.tar.gz" -C "target/$TARGET/release" bkmt LICENSES
       - name: Package Windows binary
         if: github.ref_type == 'tag' && runner.os == 'Windows'
         run: |
           mkdir -p dist
           cd "target/$TARGET/release"
-          7z a "$GITHUB_WORKSPACE/dist/bkmt-$RELEASE_TAG-$TARGET.zip" bkmt.exe
+          7z a "$GITHUB_WORKSPACE/dist/bkmt-$RELEASE_TAG-$TARGET.zip" bkmt.exe LICENSES
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: github.ref_type == 'tag'
         with:
@@ -154,8 +160,9 @@ jobs:
             mkdir -p "$destination"
             if [[ "$system" == 'windows' ]]; then
               unzip -p "$archive_dir/bkmt-$RELEASE_TAG-$target.zip" "$binary" > "$destination/$binary"
+              unzip -q "$archive_dir/bkmt-$RELEASE_TAG-$target.zip" 'LICENSES/*' -d "$destination"
             else
-              tar -xzf "$archive_dir/bkmt-$RELEASE_TAG-$target.tar.gz" -C "$destination" "$binary"
+              tar -xzf "$archive_dir/bkmt-$RELEASE_TAG-$target.tar.gz" -C "$destination" "$binary" LICENSES
             fi
             test -s "$destination/$binary"
             chmod 755 "$destination/$binary"

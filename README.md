@@ -12,6 +12,8 @@
 
 [简体中文](#简体中文) · [English](#english)
 
+[官网与交互演示 / Website](https://bro-know-my-org.github.io/BroKnowMyTrove/) · [下载 / Downloads](https://github.com/bro-know-my-org/BroKnowMyTrove/releases)
+
 ---
 
 ## 简体中文
