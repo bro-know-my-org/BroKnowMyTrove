@@ -43,6 +43,7 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           key: windows-${{ matrix.os }}
+          cache-on-failure: true
           save-if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
       - name: Test workspace and CLI-only configuration
         run: |

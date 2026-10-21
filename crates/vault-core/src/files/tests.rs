@@ -126,10 +126,15 @@ fn export_staging_stays_private_and_cancelled_plaintext_is_removed() {
             );
         }
         #[cfg(windows)]
-        assert_eq!(
-            fs::File::open(&temporary).unwrap_err().kind(),
-            io::ErrorKind::PermissionDenied
-        );
+        {
+            // A handle opened without read sharing must reject a second reader.
+            // Rust's ErrorKind mapping for this Win32 error is not PermissionDenied.
+            const ERROR_SHARING_VIOLATION: i32 = 32;
+            assert_eq!(
+                fs::File::open(&temporary).unwrap_err().raw_os_error(),
+                Some(ERROR_SHARING_VIOLATION)
+            );
+        }
         seen.store(true, Ordering::Relaxed);
         cancel.cancel();
     });
