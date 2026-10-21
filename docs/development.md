@@ -68,6 +68,14 @@ cargo build --locked
 
 在 [vault-i18n/src/lib.rs](../crates/vault-i18n/src/lib.rs) 的 `texts!` 中添加 TextKey 时同时提供中英文。参数化报告保存在 Message，显示时 `render(locale)`，完整句子由 Rust 格式化检查参数，不在业务代码拼接翻译片段。语言不影响核心错误类型、格式或文件名。
 
+## 发布
+
+推送 `vMAJOR.MINOR.PATCH` 标签会触发 [Release 工作流](../.github/workflows/release.yml)，从标签对应提交构建 Windows、macOS、Linux 的 x64 / ARM64 二进制，附单平台包、六平台合集和 SHA-256 校验和。构建时从标签注入版本，源码中的 `0.0.0` 是开发占位值。
+
+如标签推送没有触发工作流，或需要重试，在 Actions → GitHub Release → Run workflow 中选择 main，并填写已存在的标签。工作流验证标签后，测试与构建都检出该标签；无需移动标签。附件准备齐全后才公开 Release，已公开的 Release 不自动覆盖。
+
+各平台压缩包与合集包含字体和 libsodium 的 `LICENSES/`，解压分发时一并保留。
+
 ## 网站
 
 [website](../website) 使用 Vite + TypeScript + 原生 CSS；Node 24（.nvmrc）、pnpm 11.25.0。进入 website 执行：

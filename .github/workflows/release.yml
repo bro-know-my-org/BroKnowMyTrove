@@ -3,13 +3,19 @@ name: GitHub Release
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  group: ci-${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,6 +27,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       prerelease: ${{ steps.version.outputs.prerelease }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -28,15 +35,18 @@ jobs:
       - name: Validate release tag
         id: version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: python3 .github/scripts/prepare-release.py --validate-only
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          python3 .github/scripts/prepare-release.py --validate-only
+          git fetch --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   checks:
     name: Rust checks
     needs: version
     uses: ./.github/workflows/check.yml
     with:
-      release-tag: ${{ github.ref_name }}
+      release-tag: ${{ needs.version.outputs.tag }}
 
   build:
     name: Test and build (${{ matrix.target }})
@@ -64,11 +74,12 @@ jobs:
         shell: bash
     env:
       TARGET: ${{ matrix.target }}
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: refs/tags/${{ needs.version.outputs.tag }}
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -95,10 +106,8 @@ jobs:
       - name: Test CLI without GUI
         run: cargo test -p vault-cli --no-default-features --locked --target "$TARGET"
       - name: Build release binary
-        if: github.ref_type == 'tag'
         run: cargo build --release --locked -p vault-cli --bin bkmt --target "$TARGET"
       - name: Smoke test release binary
-        if: github.ref_type == 'tag'
         run: |
           binary="target/$TARGET/release/bkmt"
           if [[ "$RUNNER_OS" == 'Windows' ]]; then binary="$binary.exe"; fi
@@ -111,18 +120,17 @@ jobs:
           cp assets/fonts/LICENSE-*.txt "$license_dir/"
           tar -xOf vendor/libsodium/LATEST.tar.gz libsodium-stable/LICENSE > "$license_dir/LICENSE-libsodium.txt"
       - name: Package Unix binary
-        if: github.ref_type == 'tag' && runner.os != 'Windows'
+        if: runner.os != 'Windows'
         run: |
           mkdir -p dist
           tar -czf "dist/bkmt-$RELEASE_TAG-$TARGET.tar.gz" -C "target/$TARGET/release" bkmt LICENSES
       - name: Package Windows binary
-        if: github.ref_type == 'tag' && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         run: |
           mkdir -p dist
           cd "target/$TARGET/release"
           7z a "$GITHUB_WORKSPACE/dist/bkmt-$RELEASE_TAG-$TARGET.zip" bkmt.exe LICENSES
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.ref_type == 'tag'
         with:
           name: release-${{ matrix.target }}
           path: dist/*
@@ -132,7 +140,6 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [version, checks, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -141,7 +148,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
       PRERELEASE: ${{ needs.version.outputs.prerelease }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
