@@ -85,7 +85,7 @@ impl Vault {
         // Build the deletion set before retiring anything. Unknown entries stop cleanup.
         let snapshots = self.store.inventory(Kind::Snapshot)?;
         let objects = self.store.inventory(Kind::Object)?;
-        if snapshots.unexpected || objects.unexpected {
+        if snapshots.unexpected || objects.unexpected || self.store.root_state(operation)?.0 {
             return Err(Error::ReadOnly);
         }
         let referenced = self.snapshot.referenced_objects();
@@ -122,15 +122,19 @@ impl Vault {
         }
         sync_directory(&self.store.root.join(Kind::Object.directory()))?;
         // Stale temporary files never participate in references. The lock excludes local tasks.
-        for kind in [Kind::Object, Kind::Snapshot, Kind::Commit] {
-            let directory = self.store.root.join(kind.directory());
+        for (directory, prefix) in [
+            (self.store.root.clone(), ".tmp-key-"),
+            (self.store.root.join(Kind::Object.directory()), ".tmp-"),
+            (self.store.root.join(Kind::Snapshot.directory()), ".tmp-"),
+            (self.store.root.join(Kind::Commit.directory()), ".tmp-"),
+        ] {
             for entry in fs::read_dir(&directory)? {
                 operation.check()?;
                 let entry = entry?;
                 if entry
                     .file_name()
                     .to_str()
-                    .is_some_and(|name| name.starts_with(".tmp-"))
+                    .is_some_and(|name| name.starts_with(prefix))
                 {
                     if !entry.file_type()?.is_file() {
                         return Err(Error::ReadOnly);

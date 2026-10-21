@@ -171,3 +171,39 @@ fn damaged_current_snapshot_preserves_historical_recovery_points() {
     vault.export_file(id, &destination, &op).unwrap();
     assert_eq!(fs::read(destination).unwrap(), b"old content");
 }
+
+#[test]
+fn cleanup_removes_stale_key_wrappings_without_touching_the_live_entry() {
+    let (temp, mut vault, password) = fixture();
+    let root = temp.path().join("vault");
+    let keys = fs::read(root.join("keys.json")).unwrap();
+    let stale = root.join(".tmp-key-abandoned");
+    fs::write(&stale, &keys).unwrap();
+    let cancelled = Operation::default();
+    cancelled.cancel();
+    assert!(matches!(
+        vault.collect_garbage(&cancelled),
+        Err(Error::Cancelled)
+    ));
+    assert!(stale.exists());
+    let report = vault.collect_garbage(&Operation::default()).unwrap();
+    assert!(report.failure.is_none());
+    assert_eq!(report.removed_temporary_bytes, keys.len() as u64);
+    assert!(!stale.exists());
+    assert_eq!(fs::read(root.join("keys.json")).unwrap(), keys);
+    drop(vault);
+    assert!(Vault::open(&root, Credential::Password(&password), OpenMode::ReadWrite).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_rejects_a_temporary_key_symlink_without_touching_its_target() {
+    let (temp, mut vault, _) = fixture();
+    let target = temp.path().join("keep");
+    fs::write(&target, b"keep").unwrap();
+    let stale = vault.store.root.join(".tmp-key-link");
+    std::os::unix::fs::symlink(&target, &stale).unwrap();
+    assert!(vault.collect_garbage(&Operation::default()).is_err());
+    assert!(stale.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(fs::read(target).unwrap(), b"keep");
+}
