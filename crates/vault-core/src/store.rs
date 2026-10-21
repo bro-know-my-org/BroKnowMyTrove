@@ -315,11 +315,7 @@ fn validate_directory(path: &Path) -> Result<()> {
 }
 
 pub(crate) fn sync_directory(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    File::open(path)?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = path; // Windows directory durability is explicitly unverified in the platform record.
-    Ok(())
+    Ok(vault_platform::sync_directory(path)?)
 }
 
 #[cfg(test)]

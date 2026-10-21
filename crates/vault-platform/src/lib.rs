@@ -1,6 +1,39 @@
 //! Filesystem and process adaptation. Platform FFI is isolated from the vault core.
 use std::{io, path::Path};
 
+/// Flush directory metadata, propagating unsupported filesystems and access failures.
+/// Windows needs a writable directory handle for FlushFileBuffers (`File::sync_all`).
+pub fn sync_directory(path: &Path) -> io::Result<()> {
+    // A trailing separator or `/.` must not make a final directory symlink traversable.
+    let path: std::path::PathBuf = path.components().collect();
+    #[cfg(unix)]
+    let directory = std::fs::File::from(rustix::fs::open(
+        &path,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?);
+    #[cfg(windows)]
+    let directory = {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        };
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&path)?
+    };
+    let metadata = directory.metadata()?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    directory.sync_all()
+}
+
 #[cfg(windows)]
 mod private_file;
 #[cfg(windows)]
@@ -142,5 +175,32 @@ mod tests {
         assert_eq!(fat_limit("exFAT"), None);
         assert_eq!(fat_limit("NTFS"), None);
         let _ = capacity(&std::env::temp_dir()).unwrap();
+    }
+
+    #[test]
+    fn directory_flush_rejects_a_regular_file_and_missing_path() {
+        let path = std::env::current_exe().unwrap();
+        assert!(sync_directory(&path).is_err());
+        assert!(sync_directory(&path.join("missing")).is_err());
+    }
+
+    #[test]
+    fn writable_directory_flush_is_not_silently_skipped() {
+        let temporary = tempfile::tempdir().unwrap();
+        sync_directory(temporary.path()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_flush_rejects_a_directory_symlink() {
+        let temporary = tempfile::tempdir().unwrap();
+        let target = temporary.path().join("target");
+        let link = temporary.path().join("link");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        for path in [link.clone(), link.join(""), link.join(".")] {
+            assert!(sync_directory(&path).is_err());
+        }
+        sync_directory(&target).unwrap();
     }
 }
