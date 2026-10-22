@@ -17,6 +17,8 @@ cargo build --locked -p vault-cli --no-default-features
 
 默认生成 `target/debug/bkmt`（Windows 为 `bkmt.exe`），无参数打开 GUI，有参数执行 CLI。纯 CLI 构建会替换同目录一体版，重新执行默认构建可恢复；错误参数不回退 GUI。
 
+三平台发布构建统一使用根清单的 `[profile.release]`：剥离符号表、启用 ThinLTO，设置 `codegen-units = 1`。本机执行 `cargo build --locked --release` 使用相同优化配置；发布压缩格式仍为 Unix `tar.gz`、Windows `zip`。
+
 Windows 使用对应 MSVC/Windows SDK，保留控制台子系统，GUI 仅脱离独占控制台，共享终端继续连接；双击闪窗及错误对话框原生体验待验证。macOS 使用 Xcode Command Line Tools。
 
 Linux 默认 GUI 使用 eframe 0.36.2、glow/OpenGL，编译 X11/Wayland 后端。Ubuntu 24.04 的构建依赖示例：
