@@ -7,6 +7,8 @@ publish.workspace = true
 
 [dependencies]
 eframe.workspace = true
+fontdb.workspace = true
+skrifa.workspace = true
 rfd.workspace = true
 vault-core.workspace = true
 vault-i18n.workspace = true

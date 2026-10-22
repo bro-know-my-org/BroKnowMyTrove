@@ -15,6 +15,7 @@ mod credentials_ui;
 mod drag_export;
 mod drop_import;
 mod files_ui;
+mod fonts;
 mod picker;
 mod session;
 mod theme;
@@ -39,28 +40,7 @@ pub fn run() -> eframe::Result {
         vault_core::PRODUCT_NAME,
         options,
         Box::new(|cc| {
-            let mut fonts = egui::FontDefinitions::default();
-            let mut cjk = egui::FontData::from_static(include_bytes!(
-                "../../../assets/fonts/NotoSansCJK-Regular.ttc"
-            ));
-            cjk.index = 2; // Noto Sans CJK SC in the unmodified, licensed TTC collection.
-            fonts
-                .font_data
-                .insert("noto-cjk".into(), std::sync::Arc::new(cjk));
-            for family in fonts.families.values_mut() {
-                family.push("noto-cjk".into());
-            }
-            fonts.font_data.insert(
-                "serif-ui".into(),
-                std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-                    "../../../assets/fonts/NotoSerifUI.otf"
-                ))),
-            );
-            fonts.families.insert(
-                egui::FontFamily::Name("serif".into()),
-                vec!["serif-ui".into(), "noto-cjk".into()],
-            );
-            cc.egui_ctx.set_fonts(fonts);
+            fonts::install(&cc.egui_ctx);
             theme::install(&cc.egui_ctx);
             Ok(Box::new(VaultApp::default()))
         }),

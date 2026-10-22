@@ -14,6 +14,8 @@ vault-core = { path = "crates/vault-core" }
 vault-i18n = { path = "crates/vault-i18n" }
 clap = "=4.6.7"
 eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+fontdb = { version = "=0.24.0", default-features = false, features = ["fs", "fontconfig"] }
+skrifa = "=0.44.0"
 rfd = "=0.17.2"
 alkali = { version = "=0.3.0", default-features = false, features = ["std"] }
 libsodium-sys-stable = "=1.24.3"

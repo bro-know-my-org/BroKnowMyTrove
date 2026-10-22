@@ -42,7 +42,22 @@ cd vendor/libsodium
 sha256sum --check SHA256SUMS
 ```
 
-libsodium 使用 ISC，完整许可在源码包 libsodium-stable/LICENSE；alkali/绑定使用 MIT OR Apache-2.0。GUI 嵌入未修改的 NotoSansCJK-Regular.ttc 简体中文集合，附 Debian 来源及 SIL OFL，许可保留在 [assets/fonts](../assets/fonts)。网站 Octicons 使用 MIT，见 [octicons-LICENSE.txt](../website/public/octicons-LICENSE.txt)。公开分发须保留相关许可并复核供应链。
+libsodium 使用 ISC，完整许可在源码包 libsodium-stable/LICENSE；alkali/绑定使用 MIT OR Apache-2.0。GUI 嵌入精简的 BKMT Sans UI 静态文案子集和 NotoSerifUI 标题字体，附 Debian 来源及 SIL OFL，许可保留在 [assets/fonts](../assets/fonts)。网站 Octicons 使用 MIT，见 [octicons-LICENSE.txt](../website/public/octicons-LICENSE.txt)。公开分发须保留相关许可并复核供应链。
+
+## GUI 字体
+
+正文和输入框优先使用本机系统字体，保留 egui 默认拉丁/符号字体，并查找系统 CJK 字体作为回退；标题优先使用内嵌的 NotoSerifUI。系统字体通过 fontdb 从各平台字体目录发现，保留 TTC face index，仅将选中的字体读取到内存，不复制进发布包。字体文件不可读或不存在时跳过，并使用内嵌文案子集保证中英文界面可读。用户文件名、路径和输入的字形覆盖取决于已安装的系统字体；精简 Linux 环境可安装 `fonts-noto-cjk` 补充中文覆盖。
+
+`assets/fonts/NotoSansCJK-Regular.ttc` 仅作为字体子集生成和测试输入，程序不再嵌入完整集合。修改 GUI 或翻译文案后，在仓库根目录重建静态文案子集并运行字体覆盖测试：
+
+```sh
+uv run --no-project --with fonttools==4.60.1 python scripts/subset-ui-font.py
+cargo test --locked -p vault-gui fonts::tests
+# 需本机已安装 CJK 字体，验证实际系统字体发现和文件名排版
+cargo test --locked -p vault-gui installed_system_fonts_render_filename -- --ignored
+```
+
+子集收集 GUI 与翻译源码中的字符；覆盖测试会检查无系统字体时的界面文字，新增文案缺字时会失败，提示重新生成。生成的字体文件随源码提交，正常构建不需要 Python 或 fontTools。
 
 ## 工程检查
 

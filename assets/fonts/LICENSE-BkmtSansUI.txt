@@ -1,0 +1,11 @@
+BkmtSansUI.otf is a modified UI glyph subset of Noto Sans CJK SC Regular.
+Source: NotoSansCJK-Regular.ttc in this directory, face index 2.
+Upstream: https://github.com/notofonts/noto-cjk
+Copyright 2014-2021 Adobe (http://www.adobe.com/).
+License: SIL Open Font License 1.1; the full license and upstream attribution
+are preserved in the accompanying LICENSE-noto-cjk.txt.
+
+Generated with fontTools 4.60.1 by scripts/subset-ui-font.py. The modified
+font family is named BKMT Sans UI, with PostScript name BkmtSansUI-Regular.
+It covers built-in UI text, not arbitrary user filenames. The original TTC
+is retained only as a regeneration/test input and is not embedded in bkmt.
