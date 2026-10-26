@@ -50,6 +50,8 @@ libsodium 使用 ISC，完整许可在源码包 libsodium-stable/LICENSE；alkal
 
 正文和输入框优先使用本机系统字体，保留 egui 默认拉丁/符号字体，并查找系统 CJK 字体作为回退；标题优先使用内嵌的 NotoSerifUI。系统字体通过 fontdb 从各平台字体目录发现，保留 TTC face index，仅将选中的字体读取到内存，不复制进发布包。字体文件不可读或不存在时跳过，并使用内嵌文案子集保证中英文界面可读。用户文件名、路径和输入的字形覆盖取决于已安装的系统字体；精简 Linux 环境可安装 `fonts-noto-cjk` 补充中文覆盖。
 
+egui 0.36 按行高居中回退字形，不会自动对齐不同字体的基线。加载时使用 skrifa 读取实际 face 的 ascent、descent、leading 和 units-per-em，以正文主字体为共同参照，通过 `FontTweak::y_offset_factor` 校正文字字体的相对基线。校正随字号缩放，不改变字体选择和字形覆盖，不增加字体资源；emoji/符号字体保留原有光学校正。字体回归测试检查实际栅格字形的位置，覆盖正文、等宽与标题字族、多个字号和缩放，以及没有系统字体的回退；允许一个物理像素加内部度量取整误差。升级 egui 时需复核其回退排版规则。
+
 `assets/fonts/NotoSansCJK-Regular.ttc` 仅作为字体子集生成和测试输入，程序不再嵌入完整集合。修改 GUI 或翻译文案后，在仓库根目录重建静态文案子集并运行字体覆盖测试：
 
 ```sh

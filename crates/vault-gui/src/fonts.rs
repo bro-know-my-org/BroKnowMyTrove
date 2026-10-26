@@ -100,7 +100,49 @@ fn definitions(database: &Database) -> FontDefinitions {
     fonts
         .families
         .insert(FontFamily::Name("serif".into()), serif);
+    align_text_baselines(&mut fonts);
     fonts
+}
+
+fn align_text_baselines(fonts: &mut FontDefinitions) {
+    let primary = &fonts.families[&FontFamily::Proportional][0];
+    let Some(reference) = centered_baseline(&fonts.font_data[primary]) else {
+        return;
+    };
+    for data in fonts.font_data.values_mut() {
+        let Some(baseline) = centered_baseline(data) else {
+            continue;
+        };
+        let data = Arc::make_mut(data);
+        // egui 0.36 centers fallback faces by line height rather than aligning
+        // their baselines. Normalize the baseline relative to that center using
+        // actual face metrics (including TTC index), independent of font size.
+        // One shared anchor also works for mono and serif without copying the
+        // large system font collections into separate per-family definitions.
+        data.tweak.y_offset_factor += (reference - baseline) / data.tweak.scale;
+    }
+}
+
+fn centered_baseline(data: &FontData) -> Option<f32> {
+    let face = skrifa::FontRef::from_index(data.font.as_ref(), data.index).ok()?;
+    let charmap = face.charmap();
+    // Emoji/symbol faces have deliberate optical scaling/positioning; leave it.
+    if !['A', '0']
+        .into_iter()
+        .all(|ch| charmap.map(ch).is_some_and(|id| id.to_u32() != 0))
+    {
+        return None;
+    }
+    let metrics = face.metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    if metrics.units_per_em == 0 {
+        return None;
+    }
+    let center = (metrics.ascent + metrics.descent - metrics.leading)
+        / (2.0 * f32::from(metrics.units_per_em));
+    Some((center + data.tweak.y_offset_factor) * data.tweak.scale)
 }
 
 fn load_system(
@@ -174,6 +216,106 @@ fn load_system(
 mod tests {
     use super::*;
     use egui::epaint::text::Fonts;
+
+    #[test]
+    fn mixed_filename_uses_a_shared_baseline() {
+        let mut database = Database::new();
+        database
+            .load_font_file(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/NotoSansCJK-Regular.ttc"
+            ))
+            .unwrap();
+        // A deterministic Western system face: never depend on the host's fonts.
+        let defaults = FontDefinitions::default();
+        database.load_font_data(defaults.font_data["Ubuntu-Light"].font.to_vec());
+        let id = database
+            .faces()
+            .find(|face| face.families.iter().any(|(name, _)| name == "Ubuntu"))
+            .unwrap()
+            .id;
+        let mut face = database.face(id).unwrap().clone();
+        database.remove_face(id);
+        face.families = vec![("Segoe UI".into(), fontdb::Language::English_UnitedStates)];
+        database.push_face_info(face);
+
+        assert_mixed_baselines(definitions(&database), true);
+        assert_mixed_baselines(definitions(&Database::new()), false);
+    }
+
+    fn assert_mixed_baselines(definitions: FontDefinitions, has_system_cjk: bool) {
+        let text = if has_system_cjk {
+            "LUKS2·恢复备份·20261026-085828-Ncij7Y-\u{9f98}.zip"
+        } else {
+            "LUKS2·恢复备份·20261026-085828-Ncij7Y.zip"
+        };
+        let mut fonts = Fonts::new(Default::default(), definitions.clone());
+        for family in [
+            FontFamily::Proportional,
+            FontFamily::Monospace,
+            FontFamily::Name("serif".into()),
+        ] {
+            for size in [12.0, 14.0, 18.0, 24.0] {
+                for pixels_per_point in [1.0, 1.5, 2.0] {
+                    let galley = fonts
+                        .with_pixels_per_point(pixels_per_point)
+                        .layout_no_wrap(
+                            text.into(),
+                            egui::FontId::new(size, family.clone()),
+                            egui::Color32::WHITE,
+                        );
+                    let mut baselines = Vec::new();
+                    for ch in ['2', '复', '\u{9f98}'] {
+                        let Some(glyph) = galley.rows[0].glyphs.iter().find(|g| g.chr == ch) else {
+                            continue;
+                        };
+                        let data = definitions.families[&family]
+                            .iter()
+                            .map(|name| &definitions.font_data[name])
+                            .find(|data| {
+                                skrifa::FontRef::from_index(data.font.as_ref(), data.index)
+                                    .unwrap()
+                                    .charmap()
+                                    .map(ch)
+                                    .is_some_and(|id| id.to_u32() != 0)
+                            })
+                            .unwrap();
+                        let mut raw = (**data).clone();
+                        raw.tweak.y_offset_factor = 0.0;
+                        raw.tweak.y_offset = 0.0;
+                        let mut single = FontDefinitions::empty();
+                        single.font_data.insert("raw".into(), Arc::new(raw));
+                        single
+                            .families
+                            .insert(FontFamily::Proportional, vec!["raw".into()]);
+                        let mut raw_fonts = Fonts::new(Default::default(), single);
+                        let reference = raw_fonts
+                            .with_pixels_per_point(pixels_per_point)
+                            .layout_no_wrap(
+                                ch.to_string(),
+                                egui::FontId::proportional(size),
+                                egui::Color32::WHITE,
+                            );
+                        // Recover the painted baseline from the actual rasterized
+                        // glyph, including FontTweak (Glyph::pos alone omits it).
+                        baselines.push(
+                            glyph.pos.y + glyph.uv_rect.offset.y
+                                - reference.rows[0].glyphs[0].uv_rect.offset.y,
+                        );
+                    }
+                    let spread = baselines.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                        - baselines.iter().copied().fold(f32::INFINITY, f32::min);
+                    // Each face rounds its metrics and tweak separately before
+                    // snapping the baseline to the physical pixel grid.
+                    let rounding_slack = 4.0 * egui::emath::GUI_ROUNDING;
+                    assert!(
+                        spread <= 1.0 / pixels_per_point + rounding_slack,
+                        "{family:?}, {size}pt, {pixels_per_point}x: painted baselines {baselines:?}"
+                    );
+                }
+            }
+        }
+    }
 
     fn ui_characters(path: &std::path::Path, characters: &mut std::collections::BTreeSet<char>) {
         for entry in std::fs::read_dir(path).unwrap() {
@@ -346,6 +488,7 @@ mod tests {
         let mut database = Database::new();
         database.load_system_fonts();
         let definitions = definitions(&database);
+        assert_mixed_baselines(definitions.clone(), true);
         let mut fonts = Fonts::new(Default::default(), definitions);
         assert_filename(&mut fonts);
     }
