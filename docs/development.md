@@ -99,7 +99,7 @@ cargo build --locked
 
 ## 网站
 
-[website](../website) 使用 Vite + TypeScript + 原生 CSS；Node 24（.nvmrc）、pnpm 11.25.0。进入 website 执行：
+[website](../website) 使用 Vite + TypeScript + 原生 CSS；Node 26 LTS（.nvmrc）、pnpm 11.25.0。进入 website 执行：
 
 ```sh
 pnpm install --prod=false
